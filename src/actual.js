@@ -3,10 +3,23 @@ import * as api from '@actual-app/api';
 let internal = null;
 let loaded = false;
 
-export async function openBudget({ serverURL, password, syncId, e2ePassword, dataDir }) {
-  internal = await api.init({ serverURL, password, dataDir });
-  await api.downloadBudget(syncId, e2ePassword ? { password: e2ePassword } : undefined);
-  loaded = true;
+// A connection blip (the server restarting, the network not up yet right after
+// the container starts) shouldn't cost a whole scheduled run, so retry a few times.
+export async function openBudget({ serverURL, password, syncId, e2ePassword, dataDir }, { attempts = 4, delayMs = 30_000 } = {}) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      internal = await api.init({ serverURL, password, dataDir });
+      await api.downloadBudget(syncId, e2ePassword ? { password: e2ePassword } : undefined);
+      loaded = true;
+      return;
+    } catch (err) {
+      internal = null;
+      await api.shutdown().catch(() => {});
+      if (attempt >= attempts || !/network-failure|timeout|ECONN|ETIMEDOUT/i.test(String(err?.message))) throw err;
+      console.log(new Date().toISOString(), `Can't reach Actual (${err.message}); retrying in ${delayMs / 1000}s (${attempt}/${attempts - 1})`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
 }
 
 export async function closeBudget() {
