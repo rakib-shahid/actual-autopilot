@@ -53,8 +53,8 @@ The container runs as uid 1000, so the import, done, and backup folders on the h
 | `LOOKBACK_DAYS` | `3` | how far back each run looks in Gmail |
 | `ACCOUNT_MAP` | `{}` | `{"1234": "Checking"}` |
 | `ANTHROPIC_API_KEY` | required | |
-| `CLAUDE_MODEL` | `claude-opus-5-5` | `claude-haiku-4-5` costs less |
-| `CLAUDE_EFFORT` | `low` | |
+| `CLAUDE_MODEL` | `claude-haiku-4-5` | cheapest ($1 / $5 per million tokens in / out); `claude-sonnet-5-5` if categories need more judgment |
+| `CLAUDE_EFFORT` | | ignored for Haiku; e.g. `low` for Sonnet or Opus |
 | `CATEGORIZE` | `true` | set `false` to only import |
 | `CATEGORIZE_DAYS` | `30` | |
 | `MIN_CONFIDENCE` | `0.8` | |

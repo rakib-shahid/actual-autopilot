@@ -61,8 +61,8 @@ export function loadConfig() {
       lookbackDays: num('LOOKBACK_DAYS', 3),
     },
     claude: {
-      model: process.env.CLAUDE_MODEL || 'claude-opus-5-5',
-      effort: process.env.CLAUDE_EFFORT || 'low',
+      model: process.env.CLAUDE_MODEL || 'claude-haiku-4-5',
+      effort: process.env.CLAUDE_EFFORT || undefined,
     },
     // Maps the last 4 digits a bank email mentions to an Actual account name,
     // e.g. {"1234": "Checking", "5678": "Credit Card"}.

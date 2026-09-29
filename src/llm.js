@@ -46,14 +46,20 @@ You get their category list, examples of how they categorized past transactions,
 - Inflows like paychecks and refunds usually go to an income category or back to the category of the original purchase.
 - Return one result for every transaction id you were given.`;
 
+// Pulling fields out of an alert email and matching payees to categories are
+// simple jobs, so the cheapest model is the default.
+const MODEL = process.env.CLAUDE_MODEL || 'claude-haiku-4-5';
+// Haiku 4.5 rejects the effort setting, so only send it to models that take it.
+const EFFORT = /haiku/.test(MODEL) ? undefined : process.env.CLAUDE_EFFORT || undefined;
+
 async function parse(system, user, schema) {
   const response = await client.messages.parse({
-    model: process.env.CLAUDE_MODEL || 'claude-opus-5-5',
+    model: MODEL,
     max_tokens: 16000,
     system,
     messages: [{ role: 'user', content: user }],
     output_config: {
-      effort: process.env.CLAUDE_EFFORT || 'low',
+      ...(EFFORT ? { effort: EFFORT } : {}),
       format: zodOutputFormat(schema),
     },
   });
