@@ -85,6 +85,12 @@ export function loadConfig() {
       dir: process.env.BACKUP_DIR || '/backups',
       keep: num('BACKUP_KEEP', 30),
     },
+    web: {
+      // Built-in web page (status, Scan now, review list). 0 turns it off.
+      port: num('WEB_PORT', 8080),
+      // Optional: require this password (any username) to open the page.
+      password: process.env.WEB_PASSWORD || '',
+    },
     dryRun: bool('DRY_RUN', true),
     runOnce: bool('RUN_ONCE', false),
     schedule: process.env.SCHEDULE || '0 */2 * * *',

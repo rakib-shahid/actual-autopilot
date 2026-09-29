@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Actual Autopilot</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #667085; --line: #e3e6ec;
+    --accent: #3b5bdb; --accent-text: #ffffff; --good: #2b8a3e; --bad: #c92a2a; --warn: #b7791f;
+    --chip: #eef1f6; --shadow: 0 1px 2px rgba(16, 24, 40, .06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --panel: #1a1e26; --text: #e6e9ef; --muted: #98a2b3; --line: #2a303b;
+      --accent: #6d8cff; --accent-text: #0d1020; --good: #69db7c; --bad: #ff8787; --warn: #f6c453;
+      --chip: #232935; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 20px 16px 48px; }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  h1 { font-size: 20px; margin: 0; flex: 1; }
+  h2 { font-size: 16px; margin: 0; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 16px; margin-bottom: 16px; }
+  .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .spread { justify-content: space-between; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--chip); font-size: 13px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.on { background: var(--accent); animation: pulse 1s infinite alternate; }
+  .dot.ok { background: var(--good); } .dot.fail { background: var(--bad); }
+  @keyframes pulse { to { opacity: .35; } }
+  button { font: inherit; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 7px 14px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); max-width: 100%; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 12px; }
+  .stat .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .stat .value { font-size: 15px; font-weight: 600; }
+  .item { border-top: 1px solid var(--line); padding: 14px 0; display: grid; grid-template-columns: 1fr auto; gap: 6px 16px; }
+  .item:first-child { border-top: 0; }
+  .payee { font-weight: 600; }
+  .amount { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+  .amount.out { color: var(--bad); } .amount.in { color: var(--good); }
+  .reason { grid-column: 1 / -1; font-size: 13px; color: var(--muted); }
+  .actions { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .actions select { flex: 1; min-width: 200px; }
+  .empty { text-align: center; padding: 24px 0; color: var(--muted); }
+  .banner { background: var(--chip); border-radius: 8px; padding: 8px 12px; font-size: 13px; margin-top: 12px; }
+  .banner.warn { color: var(--warn); }
+  pre { margin: 12px 0 0; max-height: 360px; overflow: auto; font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+  summary { cursor: pointer; font-weight: 600; }
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  @media (max-width: 560px) { .item { grid-template-columns: 1fr; } .amount { text-align: left; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Actual Autopilot</h1>
+    <span class="pill" id="state"><span class="dot" id="dot"></span><span id="stateText">Loading…</span></span>
+    <button class="primary" id="scan">Scan now</button>
+  </header>
+
+  <section class="panel">
+    <h2>Status</h2>
+    <div class="stats">
+      <div class="stat"><div class="label">Last run</div><div class="value" id="lastRun">–</div><div class="small muted" id="lastRunDetail"></div></div>
+      <div class="stat"><div class="label">Next scheduled run</div><div class="value" id="nextRun">–</div><div class="small muted" id="schedule"></div></div>
+    </div>
+    <div class="banner warn" id="dryBanner" hidden>Dry run is on: scans only log what they would do, and review decisions can't be saved. Set DRY_RUN=false to make changes.</div>
+  </section>
+
+  <section class="panel">
+    <div class="row spread">
+      <h2>Needs review <span class="muted" id="reviewCount"></span></h2>
+      <div class="row">
+        <button id="approveAll" hidden>Approve all guesses</button>
+        <button id="refresh">Refresh</button>
+      </div>
+    </div>
+    <p class="small muted" style="margin:6px 0 0">Transactions Claude wasn't confident about. Pick a category and save, or skip to leave it uncategorized (Claude won't try it again).</p>
+    <div id="reviews"><div class="empty">Loading from Actual…</div></div>
+  </section>
+
+  <section class="panel">
+    <details id="logBox">
+      <summary>Recent activity</summary>
+      <pre id="logs"></pre>
+    </details>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+let data = { items: [], categories: [], dryRun: false };
+let wasRunning = null;
+let pollTimer = null;
+
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+function when(iso) {
+  if (!iso) return '–';
+  const d = new Date(iso);
+  const mins = Math.round((d - Date.now()) / 60000);
+  const rel = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+  const r = Math.abs(mins) < 60 ? rel.format(mins, 'minute') : Math.abs(mins) < 1440 ? rel.format(Math.round(mins / 60), 'hour') : rel.format(Math.round(mins / 1440), 'day');
+  return `${d.toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })} (${r})`;
+}
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok && res.status !== 409) throw new Error(body.error || res.statusText);
+  return body;
+}
+
+async function loadStatus() {
+  try {
+    const s = await api('/api/status');
+    $('dot').className = 'dot ' + (s.running ? 'on' : s.lastRun ? (s.lastRun.ok ? 'ok' : 'fail') : '');
+    $('stateText').textContent = s.running ? 'Scanning…' : 'Idle';
+    $('scan').disabled = s.running;
+    $('scan').textContent = s.running ? 'Scanning…' : 'Scan now';
+    $('dryBanner').hidden = !s.dryRun;
+    if (s.lastRun) {
+      $('lastRun').textContent = when(s.lastRun.finishedAt || s.lastRun.startedAt);
+      $('lastRunDetail').textContent = `${s.lastRun.ok ? 'Finished' : 'Had errors (see activity)'} · started by ${s.lastRun.trigger}`;
+    } else {
+      $('lastRun').textContent = s.running ? 'Running now' : 'None since the container started';
+    }
+    $('nextRun').textContent = when(s.nextRun);
+    $('schedule').textContent = `Schedule "${s.schedule}" (${s.timezone})`;
+    const logs = $('logs');
+    const atBottom = logs.scrollTop + logs.clientHeight >= logs.scrollHeight - 20;
+    logs.textContent = s.logs.map((l) => l.replace(/^(\S+)/, (t) => new Date(t).toLocaleTimeString())).join('\n') || 'Nothing yet.';
+    if (atBottom) logs.scrollTop = logs.scrollHeight;
+    if (wasRunning && !s.running) loadReviews();
+    wasRunning = s.running;
+    schedulePoll(s.running ? 3000 : 30000);
+  } catch (e) {
+    $('stateText').textContent = 'Offline';
+    schedulePoll(10000);
+  }
+}
+
+function schedulePoll(ms) {
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(loadStatus, ms);
+}
+
+async function loadReviews() {
+  $('refresh').disabled = true;
+  try {
+    data = await api('/api/review');
+    render();
+  } catch (e) {
+    $('reviews').innerHTML = `<div class="empty">Couldn't load from Actual: ${esc(e.message)}</div>`;
+  } finally {
+    $('refresh').disabled = false;
+  }
+}
+
+function options(selected) {
+  const groups = { expense: [], income: [] };
+  for (const c of data.categories) (c.income ? groups.income : groups.expense).push(c);
+  const opt = (c) => `<option value="${esc(c.id)}"${c.id === selected ? ' selected' : ''}>${esc(c.label)}</option>`;
+  return `<option value="">Choose a category…</option>` +
+    `<optgroup label="Spending">${groups.expense.map(opt).join('')}</optgroup>` +
+    (groups.income.length ? `<optgroup label="Income">${groups.income.map(opt).join('')}</optgroup>` : '');
+}
+
+function render() {
+  const items = data.items;
+  $('reviewCount').textContent = items.length ? `(${items.length})` : '';
+  $('approveAll').hidden = data.dryRun || !items.some((i) => i.guess);
+  if (!items.length) {
+    $('reviews').innerHTML = '<div class="empty">Nothing to review. Claude was confident about everything.</div>';
+    return;
+  }
+  $('reviews').innerHTML = items.map((i) => {
+    const out = i.amount.startsWith('-');
+    const conf = i.confidence != null ? ` · ${Math.round(i.confidence * 100)}% sure` : '';
+    return `<div class="item" data-id="${esc(i.id)}">
+      <div><div class="payee">${esc(i.payee)}</div><div class="small muted">${esc(i.date)} · ${esc(i.account)}</div></div>
+      <div class="amount ${out ? 'out' : 'in'}">${out ? '−' : '+'}$${esc(i.amount.replace('-', ''))}</div>
+      ${i.reason || conf ? `<div class="reason">${i.guess ? 'Claude’s guess is preselected' : 'No guess'}${esc(conf)}${i.reason ? ': ' + esc(i.reason) : ''}</div>` : ''}
+      <div class="actions">
+        <select aria-label="Category for ${esc(i.payee)}">${options(i.guess)}</select>
+        <button class="primary save"${data.dryRun ? ' disabled' : ''}>Save</button>
+        <button class="skip"${data.dryRun ? ' disabled' : ''}>Skip</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function decide(decisions) {
+  const res = await api('/api/review', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ decisions }) });
+  const ids = new Set(decisions.map((d) => d.id));
+  data.items = data.items.filter((i) => !ids.has(i.id));
+  render();
+  toast(res.applied === 1 ? 'Saved to Actual' : `Saved ${res.applied} to Actual`);
+}
+
+$('reviews').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button');
+  const row = e.target.closest('.item');
+  if (!btn || !row) return;
+  const id = row.dataset.id;
+  const category_id = row.querySelector('select').value;
+  if (btn.classList.contains('save') && !category_id) return toast('Pick a category first');
+  row.querySelectorAll('button').forEach((b) => (b.disabled = true));
+  try {
+    await decide([btn.classList.contains('skip') ? { id, skip: true } : { id, category_id }]);
+  } catch (err) {
+    toast(`Failed: ${err.message}`);
+    row.querySelectorAll('button').forEach((b) => (b.disabled = false));
+  }
+});
+
+$('approveAll').addEventListener('click', async () => {
+  const decisions = [...document.querySelectorAll('.item')]
+    .map((row) => ({ id: row.dataset.id, category_id: row.querySelector('select').value }))
+    .filter((d) => d.category_id);
+  if (!decisions.length || !confirm(`Save the selected category for ${decisions.length} transaction(s)?`)) return;
+  $('approveAll').disabled = true;
+  try { await decide(decisions); } catch (err) { toast(`Failed: ${err.message}`); } finally { $('approveAll').disabled = false; }
+});
+
+$('scan').addEventListener('click', async () => {
+  $('scan').disabled = true;
+  const res = await api('/api/scan', { method: 'POST' }).catch((e) => ({ error: e.message }));
+  toast(res.started ? 'Scan started' : res.error ? `Failed: ${res.error}` : 'A scan is already running');
+  $('logBox').open = true;
+  loadStatus();
+});
+
+$('refresh').addEventListener('click', loadReviews);
+loadStatus();
+loadReviews();
+</script>
+</body>
+</html>

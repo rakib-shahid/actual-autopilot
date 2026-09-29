@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import cron from 'node-cron';
 import { loadConfig } from './config.js';
 import { fetchAlertEmails } from './gmail.js';
@@ -8,6 +9,9 @@ import { loadState } from './state.js';
 import { planImports, dateRange } from './dedupe.js';
 import { listImportFiles, parseBankCsv, ofxAccountLast4, accountFromFileName, moveFile } from './files.js';
 import { writeBackup } from './backup.js';
+import { REVIEW_TAG, reviewNote, isPendingReview, guessedCategory, resolvedNotes } from './review.js';
+import { startWebServer } from './web.js';
+import { captureLogs, recentLogs } from './logbuffer.js';
 import {
   openBudget,
   closeBudget,
@@ -26,8 +30,8 @@ import {
   formatAmount,
 } from './actual.js';
 
-const REVIEW_TAG = '#review';
-const log = (...args) => console.log(new Date().toISOString(), ...args);
+captureLogs();
+const log =(...args) => console.log(new Date().toISOString(), ...args);
 
 function appendNote(existing, note) {
   if (!existing) return note;
@@ -191,7 +195,7 @@ async function backup(config, state) {
   }
 }
 
-async function categorize(config, lookups) {
+async function categorize(config, lookups, state) {
   if (!config.categorize.enabled) return;
 
   const today = isoDate(new Date());
@@ -242,49 +246,138 @@ async function categorize(config, lookups) {
       } else {
         const guess = cat ? `${cat.group} / ${cat.name}` : 'no guess';
         log(`  ${config.dryRun ? '[dry run] ' : ''}? ${label} -> review (${guess}, ${r?.confidence?.toFixed(2) ?? 'n/a'}): ${r?.reason ?? 'missing'}`);
-        if (!config.dryRun) await updateFields(t.id, { notes: appendNote(t.notes, `${REVIEW_TAG} maybe ${guess}`) });
+        if (!config.dryRun) {
+          await updateFields(t.id, { notes: appendNote(t.notes, reviewNote(guess)) });
+          state.reviews[t.id] = { at: new Date().toISOString(), confidence: r?.confidence ?? null, reason: r?.reason ?? '' };
+        }
       }
     }
   }
 }
 
+// Scheduled runs and the web page both open the budget; this makes them take turns.
+let budgetQueue = Promise.resolve();
+function withBudgetLock(fn) {
+  const next = budgetQueue.then(fn);
+  budgetQueue = next.catch(() => {});
+  return next;
+}
+
 let running = false;
+let lastRun = null;
 
 // One step failing (say Gmail is down) shouldn't stop the others.
 async function step(name, fn) {
   try {
     await fn();
+    return true;
   } catch (err) {
     log(`${name} failed:`, err?.stack ?? err);
     process.exitCode = 1;
+    return false;
   }
 }
 
-async function runOnce(config, { emails = true } = {}) {
+async function runOnce(config, { emails = true, trigger = 'schedule' } = {}) {
   if (running) {
     log('Previous run still going, skipping');
     return;
   }
   running = true;
-  const state = loadState(config.actual.dataDir);
-  log(`Run started${config.dryRun ? ' (DRY_RUN: nothing will be written to Actual)' : ''}`);
+  const run = { trigger, startedAt: new Date().toISOString(), finishedAt: null, ok: false };
   try {
-    await openBudget(config.actual);
-    const lookups = await loadLookups();
-    // Files first, so bank data is in place before emails are checked against it.
-    await step('File import', () => ingestFiles(config, lookups));
-    if (emails) await step('Email import', () => ingestEmails(config, lookups, state));
-    await step('Categorize', () => categorize(config, lookups));
-    await backup(config, state);
-    state.save();
-    log('Run finished');
-  } catch (err) {
-    log('Run failed:', err?.stack ?? err);
-    process.exitCode = 1;
+    await withBudgetLock(async () => {
+      const state = loadState(config.actual.dataDir);
+      log(`Run started${trigger === 'web' ? ' (from web page)' : ''}${config.dryRun ? ' (DRY_RUN: nothing will be written to Actual)' : ''}`);
+      try {
+        await openBudget(config.actual);
+        const lookups = await loadLookups();
+        // Files first, so bank data is in place before emails are checked against it.
+        let ok = await step('File import', () => ingestFiles(config, lookups));
+        if (emails) ok = (await step('Email import', () => ingestEmails(config, lookups, state))) && ok;
+        ok = (await step('Categorize', () => categorize(config, lookups, state))) && ok;
+        await backup(config, state);
+        state.save();
+        run.ok = ok;
+        log('Run finished');
+      } catch (err) {
+        log('Run failed:', err?.stack ?? err);
+        process.exitCode = 1;
+      } finally {
+        await closeBudget().catch((err) => log('Close failed:', err?.message ?? err));
+      }
+    });
   } finally {
-    await closeBudget().catch((err) => log('Close failed:', err?.message ?? err));
+    run.finishedAt = new Date().toISOString();
+    lastRun = run;
     running = false;
   }
+}
+
+// --- Web page API -----------------------------------------------------------
+
+async function withOpenBudget(config, fn) {
+  return withBudgetLock(async () => {
+    await openBudget(config.actual);
+    try {
+      return await fn();
+    } finally {
+      await closeBudget().catch((err) => log('Close failed:', err?.message ?? err));
+    }
+  });
+}
+
+async function listReviews(config) {
+  return withOpenBudget(config, async () => {
+    const state = loadState(config.actual.dataDir);
+    const lookups = await loadLookups();
+    const txns = await recentTransactions(lookups.accounts, daysAgo(config.categorize.historyDays), isoDate(new Date()));
+    const categories = lookups.categories
+      .map((c) => ({ id: c.id, label: `${c.group} / ${c.name}`, income: !!c.is_income }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    const items = txns
+      .filter((t) => isPendingReview(t.notes))
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .map((t) => ({
+        id: t.id,
+        date: t.date,
+        payee: lookups.payeeName.get(t.payee) ?? t.imported_payee ?? '(no payee)',
+        account: t.accountName,
+        amount: formatAmount(t.amount),
+        notes: t.notes,
+        guess: guessedCategory(t.notes, lookups.categories)?.id ?? null,
+        confidence: state.reviews[t.id]?.confidence ?? null,
+        reason: state.reviews[t.id]?.reason ?? '',
+      }));
+    return { items, categories, dryRun: config.dryRun };
+  });
+}
+
+// decisions: [{ id, category_id, skip }]. Notes are re-read so a stale page can't overwrite them.
+async function applyDecisions(config, decisions) {
+  if (config.dryRun) return { applied: 0, dryRun: true };
+  return withOpenBudget(config, async () => {
+    const state = loadState(config.actual.dataDir);
+    const lookups = await loadLookups();
+    const validCategory = new Set(lookups.categories.map((c) => c.id));
+    const txns = await recentTransactions(lookups.accounts, daysAgo(config.categorize.historyDays), isoDate(new Date()));
+    const byId = new Map(txns.map((t) => [t.id, t]));
+    let applied = 0;
+    for (const d of decisions) {
+      const t = byId.get(d?.id);
+      if (!t || !isPendingReview(t.notes)) continue;
+      if (d.skip) {
+        await updateFields(t.id, { notes: resolvedNotes(t.notes, { skipped: true }) });
+      } else if (validCategory.has(d.category_id)) {
+        await updateFields(t.id, { category: d.category_id, notes: resolvedNotes(t.notes) });
+      } else continue;
+      delete state.reviews[t.id];
+      applied++;
+    }
+    state.save();
+    log(`Web page: ${applied} review decision(s) saved`);
+    return { applied };
+  });
 }
 
 function checkFolder(label, dir) {
@@ -312,8 +405,36 @@ if (config.runOnce) {
 } else {
   if (!cron.validate(config.schedule)) throw new Error(`Invalid SCHEDULE "${config.schedule}"`);
   log(`Scheduling "${config.schedule}" (${config.timezone})`);
-  await runOnce(config);
-  cron.schedule(config.schedule, () => runOnce(config), { timezone: config.timezone });
+  const task = cron.schedule(config.schedule, () => runOnce(config), { timezone: config.timezone });
+
+  if (config.web.port > 0) {
+    startWebServer({
+      port: config.web.port,
+      password: config.web.password,
+      publicDir: fileURLToPath(new URL('../public', import.meta.url)),
+      log,
+      api: {
+        status: () => ({
+          running,
+          lastRun,
+          nextRun: task.getNextRun()?.toISOString() ?? null,
+          schedule: config.schedule,
+          timezone: config.timezone,
+          dryRun: config.dryRun,
+          logs: recentLogs(),
+        }),
+        scan: () => {
+          if (running) return false;
+          runOnce(config, { trigger: 'web' });
+          return true;
+        },
+        review: () => listReviews(config),
+        decide: (decisions) => applyDecisions(config, decisions),
+      },
+    });
+  }
+
+  await runOnce(config, { trigger: 'startup' });
 
   // Between scheduled runs, pick up new files within a few minutes. Not in dry
   // run, where files stay put and would be re-read every few minutes.
@@ -325,7 +446,7 @@ if (config.runOnce) {
       } catch (err) {
         log('Import folder check failed:', err?.message ?? err);
       }
-      if (pending.length && !running) runOnce(config, { emails: false });
+      if (pending.length && !running) runOnce(config, { emails: false, trigger: 'import folder' });
     }, config.files.pollMinutes * 60 * 1000);
   }
 }

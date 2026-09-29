@@ -33,6 +33,17 @@ CSV layouts recognized by their headers: Capital One cards and 360 accounts, Cha
 
 Duplicates are checked before importing, across emails, files, and Actual's own Import button: same bank transaction ID, or the same amount in the same account within 4 days. So a pending charge from an email alert and the posted line from a later QFX end up as one transaction, and re-dropping a file adds nothing. One limit: two identical charges (same amount, same account, within 4 days) can be taken for one when only one is in Actual yet, so give those a look.
 
+## Web page
+
+The container serves a small page on port 8080 (`WEB_PORT`; `0` turns it off):
+
+- **Status:** when the last run finished, whether it had errors, and when the next scheduled run is.
+- **Scan now:** starts a full run (bank files, emails, categorizing) right away.
+- **Needs review:** every transaction Claude wasn't confident about, with its guess preselected, how sure it was, and why. Save a category (or approve all guesses at once), or skip one to leave it uncategorized; skipped ones get `#review-skipped` so Claude doesn't try them again.
+- **Recent activity:** the last few hundred log lines.
+
+There is no login unless you set `WEB_PASSWORD` (any username). Don't expose the page outside your network without one.
+
 ## Backups
 
 Mount a folder at `/backups` to get one zip of the whole budget per day (after the first run of the day), the same file as Actual's Settings > Export. Restore it from Actual's budget list with Import file > Actual. The newest `BACKUP_KEEP` are kept.
@@ -63,6 +74,8 @@ The container runs as uid 1000, so the import, done, and backup folders on the h
 | `IMPORT_POLL_MINUTES` | `5` | how often to check the drop folder between runs; `0` = only on schedule |
 | `BACKUP_DIR` | `/backups` | daily budget backup; skipped if not mounted |
 | `BACKUP_KEEP` | `30` | number of backups to keep |
+| `WEB_PORT` | `8080` | web page port; `0` = off |
+| `WEB_PASSWORD` | | require this password for the web page |
 | `DRY_RUN` | `true` | files stay in the drop folder and nothing is written to Actual |
 | `SCHEDULE` | `0 */2 * * *` | cron |
 | `RUN_ONCE` | `false` | run one pass and exit |

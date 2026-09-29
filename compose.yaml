@@ -6,6 +6,9 @@ services:
     container_name: actual-autopilot
     restart: unless-stopped
     env_file: .env
+    # Web page: status, Scan now, and the review list. Set WEB_PASSWORD to require a password.
+    ports:
+      - "8080:8080"
     volumes:
       - autopilot-data:/data
       # Optional. Drop bank exports (QFX/OFX/QIF/CSV) in import; they move to done after import.
