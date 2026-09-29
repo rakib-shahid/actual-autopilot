@@ -2,7 +2,7 @@ services:
   actual-autopilot:
     build: .
     # or, once GitHub Actions has published an image:
-    # image: ghcr.io/<your-github-user>/actual-autopilot:latest
+    # image: <your-dockerhub-user>/actual-autopilot:latest
     container_name: actual-autopilot
     restart: unless-stopped
     env_file: .env

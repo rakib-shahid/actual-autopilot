@@ -21,7 +21,7 @@ Actual's own rules still run on import, so payees you already have rules for nev
    - **Any Docker host:** `docker compose up -d --build`.
 6. **Check the dry run.** `DRY_RUN=true` is the default. Watch the logs (`docker logs -f actual-autopilot`) for a run, and if the imports and categories look right, set `DRY_RUN=false` and redeploy.
 
-Pushing to `main` also builds `ghcr.io/<owner>/actual-autopilot:latest` through GitHub Actions. If you'd rather pull than build, switch `compose.yaml` to that image.
+Pushing to `main` also builds `<dockerhub-user>/actual-autopilot:latest` (amd64 and arm64) and pushes it to Docker Hub through GitHub Actions. It needs a repo variable `DOCKERHUB_USERNAME` and a repo secret `DOCKERHUB_TOKEN` (a Docker Hub access token with Read & Write). To have Komodo pull the image instead of building, switch `compose.yaml` from `build: .` to that image.
 
 ## Configuration
 
