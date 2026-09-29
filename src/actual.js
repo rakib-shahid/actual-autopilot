@@ -15,7 +15,9 @@ export async function openBudget({ serverURL, password, syncId, e2ePassword, dat
     } catch (err) {
       internal = null;
       await api.shutdown().catch(() => {});
-      if (attempt >= attempts || !/network-failure|timeout|ECONN|ETIMEDOUT/i.test(String(err?.message))) throw err;
+      // Actual wraps sync failures as "unknown problem opening", so retry anything
+      // except errors that another try can't fix.
+      if (attempt >= attempts || /password|decrypt|not.?found|invalid/i.test(String(err?.message))) throw err;
       console.log(new Date().toISOString(), `Can't reach Actual (${err.message}); retrying in ${delayMs / 1000}s (${attempt}/${attempts - 1})`);
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
