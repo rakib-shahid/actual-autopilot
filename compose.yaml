@@ -7,4 +7,7 @@ services:
     restart: unless-stopped
     env_file: .env
     volumes:
-      - ./data:/data
+      - autopilot-data:/data
+
+volumes:
+  autopilot-data:
