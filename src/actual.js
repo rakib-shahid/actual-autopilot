@@ -34,21 +34,41 @@ export function findAccount(accounts, accountMap, last4) {
   return accounts.find((a) => a.name.toLowerCase() === name.toLowerCase()) ?? null;
 }
 
-export function toImportTransaction(extraction, email) {
+// No imported_id on purpose: the bank's QFX later carries the real one, and
+// Actual only fuzzy-matches when one side has no id. The state file stops the
+// same email being imported twice.
+export function toImportTransaction(extraction) {
   const cents = api.utils.amountToInteger(Math.abs(extraction.amount));
   return {
     date: extraction.date,
     amount: extraction.direction === 'inflow' ? cents : -cents,
     payee_name: extraction.payee,
     imported_payee: extraction.payee,
-    imported_id: `gmail:${email.messageId}`,
     notes: 'auto: email',
     cleared: false,
   };
 }
 
-export async function importOne(accountId, transaction, dryRun) {
-  return api.importTransactions(accountId, [transaction], { dryRun });
+export async function importMany(accountId, transactions, dryRun) {
+  return api.importTransactions(accountId, transactions, { dryRun });
+}
+
+// Top-level (non-split) transactions in one account between two ISO dates.
+export async function accountTransactions(accountId, startDate, endDate) {
+  const txns = await api.getTransactions(accountId, startDate, endDate);
+  return txns.filter((t) => !t.tombstone && !t.is_child);
+}
+
+// Actual's own QFX/OFX/QIF parser, so FITIDs match what its Import button stores.
+export async function parseStatementFile(filepath) {
+  return internal.send('transactions-parse-file', {
+    filepath,
+    options: { fallbackMissingPayeeToMemo: true, importNotes: false },
+  });
+}
+
+export async function exportBudgetZip() {
+  return api.exportBudget();
 }
 
 export async function loadLookups() {
@@ -91,4 +111,5 @@ export async function updateFields(id, fields) {
   await internal.send('transactions-batch-update', { updated: [{ id, ...fields }] });
 }
 
-export const formatAmount = (cents) => api.utils.integerToAmount(cents).toFixed(2);
+export const toCents = (amount) => api.utils.amountToInteger(amount);
+export const formatAmount =(cents) => api.utils.integerToAmount(cents).toFixed(2);

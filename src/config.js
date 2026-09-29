@@ -73,6 +73,18 @@ export function loadConfig() {
       historyDays: num('HISTORY_DAYS', 180),
       minConfidence: num('MIN_CONFIDENCE', 0.8),
     },
+    files: {
+      // Bank exports (QFX/OFX/QIF/CSV) dropped here are imported, then moved to doneDir.
+      importDir: process.env.IMPORT_DIR || '/import',
+      doneDir: process.env.DONE_DIR || '/done',
+      // Also check the folder this often between scheduled runs; 0 turns that off.
+      pollMinutes: num('IMPORT_POLL_MINUTES', 5),
+    },
+    backup: {
+      // A zip of the whole budget once a day, same format as Actual's Export.
+      dir: process.env.BACKUP_DIR || '/backups',
+      keep: num('BACKUP_KEEP', 30),
+    },
     dryRun: bool('DRY_RUN', true),
     runOnce: bool('RUN_ONCE', false),
     schedule: process.env.SCHEDULE || '0 */2 * * *',

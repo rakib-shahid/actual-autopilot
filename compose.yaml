@@ -1,13 +1,18 @@
 services:
   actual-autopilot:
     build: .
-    # or, once GitHub Actions has published an image:
+    # or, to pull the image GitHub Actions publishes:
     # image: <your-dockerhub-user>/actual-autopilot:latest
     container_name: actual-autopilot
     restart: unless-stopped
     env_file: .env
     volumes:
       - autopilot-data:/data
+      # Optional. Drop bank exports (QFX/OFX/QIF/CSV) in import; they move to done after import.
+      # - "/path/to/budget/import:/import"
+      # - "/path/to/budget/done:/done"
+      # Optional. One zip of the whole budget per day, newest BACKUP_KEEP kept.
+      # - "/path/to/backups:/backups"
 
 volumes:
   autopilot-data:

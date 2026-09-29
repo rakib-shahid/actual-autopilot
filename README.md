@@ -4,7 +4,7 @@ Reads bank alert emails from Gmail, adds each transaction to a self-hosted [Actu
 
 ## What a run does (every 2 hours by default)
 
-1. **Ingest.** Reads alert emails from the senders in `ALERT_SENDERS` over IMAP (read-only). Claude pulls out the date, amount, payee and card, so it keeps working when a bank changes its email layout. Statements, reminders and "upcoming payment" emails are skipped. Each transaction is imported with the Gmail message id as `imported_id`, so nothing is ever added twice.
+1. **Ingest.** Reads alert emails from the senders in `ALERT_SENDERS` over IMAP (read-only). Claude pulls out the date, amount, payee and card, so it keeps working when a bank changes its email layout. Statements, reminders and "upcoming payment" emails are skipped. Each email is handled once (tracked in `/data`), and each transaction goes through the duplicate check below, so a charge already imported from a bank file isn't added again.
 2. **Categorize.** Collects uncategorized transactions from the last `CATEGORIZE_DAYS`, whether they came from email, a CSV import or manual entry. Sends them to Claude with your category list and how you categorized each payee before.
 3. **Apply.** Picks at or above `MIN_CONFIDENCE` get the category and an `auto: Claude` note. Everything else keeps no category and gets `#review maybe <guess>` in its notes. Search `#review` in Actual to go through them.
 
@@ -22,6 +22,22 @@ Actual's own rules still run on import, so payees you already have rules for nev
 6. **Check the dry run.** `DRY_RUN=true` is the default. Watch the logs (`docker logs -f actual-autopilot`) for a run, and if the imports and categories look right, set `DRY_RUN=false` and redeploy.
 
 Pushing to `main` also builds `<dockerhub-user>/actual-autopilot:latest` (amd64 and arm64) and pushes it to Docker Hub through GitHub Actions. It needs a repo variable `DOCKERHUB_USERNAME` and a repo secret `DOCKERHUB_TOKEN` (a Docker Hub access token with Read & Write). To have Komodo pull the image instead of building, switch `compose.yaml` from `build: .` to that image.
+
+## Bank export files
+
+Mount a folder at `/import` and drop files downloaded from your bank into it: QFX/OFX (best, since they carry the bank's own IDs), QIF, or CSV. Within a few minutes each file is imported into the right account and moved to `/done` (as `YYYY-MM-DD_<name>`). Files the app can't fully handle go to `/done/failed` with the reason in the logs; fix the problem and drop the file in again.
+
+The account is picked from, in order: a card or account number column in the CSV (Capital One), the account number inside a QFX/OFX, a 4-digit number in the file name that's in `ACCOUNT_MAP` (Chase names files `Chase1234_Activity...`), or an Actual account name in the file name (`travel-card.csv`).
+
+CSV layouts recognized by their headers: Capital One cards and 360 accounts, Chase cards and checking, and anything else with a date, a description, and either an amount or debit/credit columns.
+
+Duplicates are checked before importing, across emails, files, and Actual's own Import button: same bank transaction ID, or the same amount in the same account within 4 days. So a pending charge from an email alert and the posted line from a later QFX end up as one transaction, and re-dropping a file adds nothing. One limit: two identical charges (same amount, same account, within 4 days) can be taken for one when only one is in Actual yet, so give those a look.
+
+## Backups
+
+Mount a folder at `/backups` to get one zip of the whole budget per day (after the first run of the day), the same file as Actual's Settings > Export. Restore it from Actual's budget list with Import file > Actual. The newest `BACKUP_KEEP` are kept.
+
+The container runs as uid 1000, so the import, done, and backup folders on the host must be writable by that uid. The startup log says so if they aren't.
 
 ## Configuration
 
@@ -42,7 +58,12 @@ Pushing to `main` also builds `<dockerhub-user>/actual-autopilot:latest` (amd64 
 | `CATEGORIZE` | `true` | set `false` to only import |
 | `CATEGORIZE_DAYS` | `30` | |
 | `MIN_CONFIDENCE` | `0.8` | |
-| `DRY_RUN` | `true` | |
+| `IMPORT_DIR` | `/import` | bank export drop folder; skipped if not mounted |
+| `DONE_DIR` | `/done` | imported files move here; problem files go to `done/failed` |
+| `IMPORT_POLL_MINUTES` | `5` | how often to check the drop folder between runs; `0` = only on schedule |
+| `BACKUP_DIR` | `/backups` | daily budget backup; skipped if not mounted |
+| `BACKUP_KEEP` | `30` | number of backups to keep |
+| `DRY_RUN` | `true` | files stay in the drop folder and nothing is written to Actual |
 | `SCHEDULE` | `0 */2 * * *` | cron |
 | `RUN_ONCE` | `false` | run one pass and exit |
 | `TZ` | `America/New_York` | |

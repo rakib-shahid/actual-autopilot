@@ -40,14 +40,14 @@ test('findAccount maps last4 to an Actual account by name', () => {
   assert.equal(findAccount(accounts, map, null), null);
 });
 
-test('toImportTransaction signs amounts and sets a stable imported_id', () => {
+test('toImportTransaction signs amounts and leaves imported_id for the bank file', () => {
   const email = { messageId: '<abc@capitalone.com>' };
   const out = toImportTransaction(
     { date: '2026-09-29', amount: 42.17, direction: 'outflow', payee: 'Acme Telecom' },
     email,
   );
   assert.equal(out.amount, -4217);
-  assert.equal(out.imported_id, 'gmail:<abc@capitalone.com>');
+  assert.equal(out.imported_id, undefined);
   assert.equal(out.payee_name, 'Acme Telecom');
   const refund = toImportTransaction({ date: '2026-09-29', amount: 12.5, direction: 'inflow', payee: 'Amazon' }, email);
   assert.equal(refund.amount, 1250);

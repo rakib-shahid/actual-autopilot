@@ -9,7 +9,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY src ./src
 
 # Budget cache and run state live here; mount a volume so restarts are fast.
-RUN mkdir -p /data && chown node:node /data
+RUN mkdir -p /data /import /done /backups && chown node:node /data /import /done /backups
 VOLUME ["/data"]
 ENV DATA_DIR=/data
 

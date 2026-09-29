@@ -17,6 +17,7 @@
   "dependencies": {
     "@actual-app/api": "^26.9.0",
     "@anthropic-ai/sdk": "^0.129.0",
+    "csv-parse": "^7.0.3",
     "imapflow": "^2.1.2",
     "mailparser": "^3.9.31",
     "node-cron": "^4.6.0",
