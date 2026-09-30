@@ -1,7 +1,7 @@
 import * as api from '@actual-app/api';
+import { DAY_MS } from './dedupe.js';
 
 let internal = null;
-let loaded = false;
 
 // A connection blip (the server restarting, the network not up yet right after
 // the container starts) shouldn't cost a whole scheduled run, so retry a few times.
@@ -10,7 +10,6 @@ export async function openBudget({ serverURL, password, syncId, e2ePassword, dat
     try {
       internal = await api.init({ serverURL, password, dataDir });
       await api.downloadBudget(syncId, e2ePassword ? { password: e2ePassword } : undefined);
-      loaded = true;
       return;
     } catch (err) {
       internal = null;
@@ -27,9 +26,8 @@ export async function openBudget({ serverURL, password, syncId, e2ePassword, dat
 export async function closeBudget() {
   if (!internal) return;
   try {
-    if (loaded) await api.sync();
+    await api.sync();
   } finally {
-    loaded = false;
     internal = null;
     await api.shutdown().catch(() => {});
   }
@@ -40,7 +38,7 @@ export function isoDate(date) {
 }
 
 export function daysAgo(days) {
-  return isoDate(new Date(Date.now() - days * 24 * 60 * 60 * 1000));
+  return isoDate(new Date(Date.now() - days * DAY_MS));
 }
 
 export function findAccount(accounts, accountMap, last4) {
@@ -64,10 +62,6 @@ export function toImportTransaction(extraction) {
   };
 }
 
-export async function importMany(accountId, transactions, dryRun) {
-  return api.importTransactions(accountId, transactions, { dryRun });
-}
-
 // Top-level (non-split) transactions in one account between two ISO dates.
 export async function accountTransactions(accountId, startDate, endDate) {
   const txns = await api.getTransactions(accountId, startDate, endDate);
@@ -80,10 +74,6 @@ export async function parseStatementFile(filepath) {
     filepath,
     options: { fallbackMissingPayeeToMemo: true, importNotes: false },
   });
-}
-
-export async function exportBudgetZip() {
-  return api.exportBudget();
 }
 
 export async function loadLookups() {

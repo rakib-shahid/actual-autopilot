@@ -53,7 +53,7 @@ test('toImportTransaction signs amounts and leaves imported_id for the bank file
   assert.equal(refund.amount, 1250);
 });
 
-test('schemas accept the shapes Claude is asked for', () => {
+test('schemas accept the shapes Gemini is asked for', () => {
   ExtractionSchema.parse({
     is_transaction: false, date: null, amount: null, direction: null, payee: null, account_last4: null, reason: 'statement',
   });

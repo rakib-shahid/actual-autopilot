@@ -1,4 +1,4 @@
-// Transactions Claude wasn't sure about carry "#review maybe <Group> / <Name>"
+// Transactions Gemini wasn't sure about carry "#review maybe <Group> / <Name>"
 // in their notes. These helpers read and clear that tag for the web page.
 
 export const REVIEW_TAG = '#review';
@@ -11,7 +11,7 @@ export function isPendingReview(notes) {
   return PENDING.test(notes ?? '');
 }
 
-// The category Claude guessed, matched against the current category list.
+// The category Gemini guessed, matched against the current category list.
 export function guessedCategory(notes, categories) {
   const m = (notes ?? '').match(PENDING);
   if (!m || m[1] === 'no guess') return null;
@@ -19,7 +19,7 @@ export function guessedCategory(notes, categories) {
 }
 
 // Notes after a decision: the tag is replaced so the transaction leaves the
-// review list. A skipped one keeps a #review-skipped tag so Claude doesn't
+// review list. A skipped one keeps a #review-skipped tag so Gemini doesn't
 // categorize it again on the next run.
 export function resolvedNotes(notes, { skipped = false } = {}) {
   const base = (notes ?? '').replace(PENDING, '').trim();

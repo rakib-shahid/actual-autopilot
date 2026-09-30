@@ -27,8 +27,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-        env:
-          ANTHROPIC_API_KEY: test
       - name: Check Docker Hub settings
         env:
           DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}

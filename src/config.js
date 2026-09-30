@@ -30,17 +30,13 @@ function num(name, fallback) {
   return n;
 }
 
-function json(name, fallback) {
-  const value = process.env[name];
-  if (!value) return fallback;
-  try {
-    return JSON.parse(value);
-  } catch {
-    throw new Error(`${name} must be valid JSON`);
-  }
-}
-
 export function loadConfig() {
+  let accountMap = {};
+  try {
+    accountMap = JSON.parse(process.env.ACCOUNT_MAP || '{}');
+  } catch {
+    throw new Error('ACCOUNT_MAP must be valid JSON');
+  }
   return {
     actual: {
       serverURL: required('ACTUAL_SERVER_URL'),
@@ -60,13 +56,9 @@ export function loadConfig() {
         .filter(Boolean),
       lookbackDays: num('LOOKBACK_DAYS', 3),
     },
-    claude: {
-      model: process.env.CLAUDE_MODEL || 'claude-haiku-4-5',
-      effort: process.env.CLAUDE_EFFORT || undefined,
-    },
     // Maps the last 4 digits a bank email mentions to an Actual account name,
     // e.g. {"1234": "Checking", "5678": "Credit Card"}.
-    accountMap: json('ACCOUNT_MAP', {}),
+    accountMap,
     categorize: {
       enabled: bool('CATEGORIZE', true),
       days: num('CATEGORIZE_DAYS', 30),

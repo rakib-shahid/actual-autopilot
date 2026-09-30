@@ -14,10 +14,10 @@
 
 export const MATCH_DAYS = 4;
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+export const DAY_MS = 24 * 60 * 60 * 1000;
 const dayNumber = (iso) => Math.round(Date.parse(`${iso}T00:00:00Z`) / DAY_MS);
 
-export function planImports(existing, incoming, matchDays = MATCH_DAYS) {
+export function planImports(existing, incoming) {
   const claimed = new Set();
   const plan = { add: [], attach: [], skip: [] };
 
@@ -29,7 +29,7 @@ export function planImports(existing, incoming, matchDays = MATCH_DAYS) {
     if (!match) {
       const day = dayNumber(txn.date);
       const candidates = existing
-        .filter((e) => !claimed.has(e.id) && e.amount === txn.amount && Math.abs(dayNumber(e.date) - day) <= matchDays)
+        .filter((e) => !claimed.has(e.id) && e.amount === txn.amount && Math.abs(dayNumber(e.date) - day) <= MATCH_DAYS)
         // Prefer an unlinked entry on the closest date.
         .sort((a, b) => Number(!!a.imported_id) - Number(!!b.imported_id) || Math.abs(dayNumber(a.date) - day) - Math.abs(dayNumber(b.date) - day));
       match = candidates[0] ?? null;
@@ -46,8 +46,8 @@ export function planImports(existing, incoming, matchDays = MATCH_DAYS) {
   return plan;
 }
 
-export function dateRange(txns, padDays = MATCH_DAYS) {
+export function dateRange(txns) {
   const days = txns.map((t) => dayNumber(t.date));
   const iso = (d) => new Date(d * DAY_MS).toISOString().slice(0, 10);
-  return [iso(Math.min(...days) - padDays), iso(Math.max(...days) + padDays)];
+  return [iso(Math.min(...days) - MATCH_DAYS), iso(Math.max(...days) + MATCH_DAYS)];
 }

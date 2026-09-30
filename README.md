@@ -1,20 +1,20 @@
 # actual-autopilot
 
-Reads bank alert emails from Gmail, adds each transaction to a self-hosted [Actual Budget](https://actualbudget.org), and fills in categories with Claude. It runs as one small Docker container next to Actual. Nothing is exposed to the internet.
+Reads bank alert emails from Gmail, adds each transaction to a self-hosted [Actual Budget](https://actualbudget.org), and fills in categories with Google Gemini on its free tier. It runs as one small Docker container next to Actual. Nothing is exposed to the internet.
 
 ## What a run does (every 2 hours by default)
 
-1. **Ingest.** Reads alert emails from the senders in `ALERT_SENDERS` over IMAP (read-only). Claude pulls out the date, amount, payee and card, so it keeps working when a bank changes its email layout. Statements, reminders and "upcoming payment" emails are skipped. Each email is handled once (tracked in `/data`), and each transaction goes through the duplicate check below, so a charge already imported from a bank file isn't added again.
-2. **Categorize.** Collects uncategorized transactions from the last `CATEGORIZE_DAYS`, whether they came from email, a CSV import or manual entry. Sends them to Claude with your category list and how you categorized each payee before.
-3. **Apply.** Picks at or above `MIN_CONFIDENCE` get the category and an `auto: Claude` note. Everything else keeps no category and gets `#review maybe <guess>` in its notes. Search `#review` in Actual to go through them.
+1. **Ingest.** Reads alert emails from the senders in `ALERT_SENDERS` over IMAP (read-only). Gemini pulls out the date, amount, payee and card, so it keeps working when a bank changes its email layout. Statements, reminders and "upcoming payment" emails are skipped. Each email is handled once (tracked in `/data`), and each transaction goes through the duplicate check below, so a charge already imported from a bank file isn't added again.
+2. **Categorize.** Collects uncategorized transactions from the last `CATEGORIZE_DAYS`, whether they came from email, a CSV import or manual entry. Sends them to Gemini with your category list and how you categorized each payee before.
+3. **Apply.** Picks at or above `MIN_CONFIDENCE` get the category and an `auto: Gemini` note (older ones say `auto: Claude`). Everything else keeps no category and gets `#review maybe <guess>` in its notes. Search `#review` in Actual to go through them.
 
-Actual's own rules still run on import, so payees you already have rules for never reach Claude.
+Actual's own rules still run on import, so payees you already have rules for never reach Gemini.
 
 ## Setup
 
 1. **Bank alerts.** Turn on alerts for every purchase (threshold $0) on each card and checking account. For Capital One that's Profile > Alerts, and for Chase it's Profile > Alerts > Account alerts. Point them at the Gmail account this reads.
 2. **Gmail app password.** At https://myaccount.google.com/apppasswords (this needs 2-Step Verification). IMAP is on by default for Gmail.
-3. **Claude API key.** At https://console.anthropic.com. It's pay-as-you-go and separate from a Claude.ai subscription. Set a monthly spend limit there.
+3. **Gemini API key (free).** See [Gemini free tier](#gemini-free-tier) below for the steps and the privacy trade-off.
 4. **Configure.** Copy `.env.example` to `.env` and fill it in. `ACCOUNT_MAP` maps the last 4 digits in an email to the exact account name in Actual.
 5. **Run.** Either:
    - **Komodo:** create a Stack from this Git repo (compose file `compose.yaml`) and paste the `.env` contents into the stack's Environment, or
@@ -39,10 +39,25 @@ The container serves a small page on port 8080 (`WEB_PORT`; `0` turns it off):
 
 - **Status:** when the last run finished, whether it had errors, and when the next scheduled run is.
 - **Scan now:** starts a full run (bank files, emails, categorizing) right away.
-- **Needs review:** every transaction Claude wasn't confident about, with its guess preselected, how sure it was, and why. Save a category (or approve all guesses at once), or skip one to leave it uncategorized; skipped ones get `#review-skipped` so Claude doesn't try them again.
+- **Needs review:** every transaction Gemini wasn't confident about, with its guess preselected, how sure it was, and why. Save a category (or approve all guesses at once), or skip one to leave it uncategorized; skipped ones get `#review-skipped` so Gemini doesn't try them again.
 - **Recent activity:** the last few hundred log lines.
 
 There is no login unless you set `WEB_PASSWORD` (any username). Don't expose the page outside your network without one.
+
+## Gemini free tier
+
+The app uses Gemini's free tier, so it costs nothing as long as the key's Google Cloud project has **no billing account**. Without billing, Google can't charge you: over a limit, requests just fail with a 429 until the limit resets.
+
+**Privacy:** on the free tier Google may use what you send to improve its products, and human reviewers may read it. Here that's your bank alert emails (merchant, amount, date, last 4 of the card) and your payee and category names. If that's not OK, turn billing on for the project (paid-tier data isn't used that way) and set a budget alert, or set `CATEGORIZE=false` and `EMAIL_INGEST=false` to run without AI.
+
+**Create the key:**
+
+1. Go to https://aistudio.google.com/apikey and sign in with a Google account.
+2. Click **Create API key**. Let it create a new project, or pick one that has no billing account.
+3. Copy the key into `GEMINI_API_KEY`.
+4. Check the project's plan on that page says **Free**. If it says a paid tier, remove billing from the project, or make a new one for this key.
+
+**Staying under the limits.** Free-tier limits are per project and per model, and Google changes them now and then; see yours at https://aistudio.google.com/rate-limit. The app paces itself with `GEMINI_RPM` (default 10 requests a minute) and `GEMINI_RPD` (default 200 a day, reset at midnight Pacific). Keep both below what that page shows. Past `GEMINI_RPD` it stops calling Gemini until the next day, and after any 429 it waits 15 minutes. Emails and transactions that miss out are picked up on a later run. Each new alert email is one request and each batch of up to 40 transactions to categorize is one more, so a typical day is a few dozen requests. The daily count starts over if the container restarts, but with no billing that can only cause 429s, never a bill.
 
 ## Backups
 
@@ -63,9 +78,10 @@ The container runs as uid 1000, so the import, done, and backup folders on the h
 | `ALERT_SENDERS` | Capital One, Chase, Amex, Discover, Citi, Venmo, PayPal | comma-separated |
 | `LOOKBACK_DAYS` | `3` | how far back each run looks in Gmail |
 | `ACCOUNT_MAP` | `{}` | `{"1234": "Checking"}` |
-| `ANTHROPIC_API_KEY` | required | |
-| `CLAUDE_MODEL` | `claude-haiku-4-5` | cheapest ($1 / $5 per million tokens in / out); `claude-sonnet-5-5` if categories need more judgment |
-| `CLAUDE_EFFORT` | | ignored for Haiku; e.g. `low` for Sonnet or Opus |
+| `GEMINI_API_KEY` | required | from https://aistudio.google.com/apikey, on a project without billing |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | any model with a free tier, e.g. `gemini-3.5-flash` for more judgment (lower free limits) |
+| `GEMINI_RPM` | `10` | max requests per minute; keep below your free-tier limit |
+| `GEMINI_RPD` | `200` | max requests per day (midnight Pacific); keep below your free-tier limit |
 | `CATEGORIZE` | `true` | set `false` to only import |
 | `CATEGORIZE_DAYS` | `30` | |
 | `MIN_CONFIDENCE` | `0.8` | |

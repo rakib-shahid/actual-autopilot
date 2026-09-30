@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import cron from 'node-cron';
+import * as api from '@actual-app/api';
 import { loadConfig } from './config.js';
 import { fetchAlertEmails } from './gmail.js';
 import { extractTransaction, categorizeTransactions } from './llm.js';
@@ -18,10 +19,8 @@ import {
   loadLookups,
   findAccount,
   toImportTransaction,
-  importMany,
   accountTransactions,
   parseStatementFile,
-  exportBudgetZip,
   recentTransactions,
   updateFields,
   daysAgo,
@@ -48,7 +47,7 @@ async function importIntoAccount(config, account, txns) {
   if (!config.dryRun) {
     for (const a of plan.attach) await updateFields(a.id, { imported_id: a.imported_id, cleared: true });
   }
-  const result = plan.add.length ? await importMany(account.id, plan.add, config.dryRun) : { added: [], updated: [] };
+  const result = plan.add.length ? await api.importTransactions(account.id, plan.add, { dryRun: config.dryRun }) : { added: [], updated: [] };
   if (result.errors?.length) log('    errors:', result.errors.map((e) => e.message).join('; '));
   return { plan, result };
 }
@@ -75,7 +74,7 @@ async function ingestEmails(config, lookups, state) {
     const record = { seenAt: seen?.seenAt ?? new Date().toISOString(), subject: email.subject, extraction };
 
     if (!extraction) {
-      log(`  ? "${email.subject}": Claude returned nothing, will retry next run`);
+      log(`  ? "${email.subject}": Gemini returned nothing, will retry next run`);
       continue;
     }
     if (!extraction.is_transaction || extraction.amount == null || !extraction.date || !extraction.payee) {
@@ -187,7 +186,7 @@ async function backup(config, state) {
   const today = isoDate(new Date());
   if (!fs.existsSync(dir) || state.lastBackup === today) return;
   try {
-    const { file, removed } = writeBackup(dir, await exportBudgetZip(), keep);
+    const { file, removed } = writeBackup(dir, await api.exportBudget(), keep);
     state.lastBackup = today;
     log(`Backup written to ${file}${removed ? ` (removed ${removed} old)` : ''}`);
   } catch (err) {
@@ -242,7 +241,7 @@ async function categorize(config, lookups, state) {
       const label = `${t.date} ${payee} $${formatAmount(t.amount)}`;
       if (cat && r.confidence >= config.categorize.minConfidence) {
         log(`  ${config.dryRun ? '[dry run] ' : ''}= ${label} -> ${cat.group} / ${cat.name} (${r.confidence.toFixed(2)})`);
-        if (!config.dryRun) await updateFields(t.id, { category: cat.id, notes: appendNote(t.notes, 'auto: Claude') });
+        if (!config.dryRun) await updateFields(t.id, { category: cat.id, notes: appendNote(t.notes, 'auto: Gemini') });
       } else {
         const guess = cat ? `${cat.group} / ${cat.name}` : 'no guess';
         log(`  ${config.dryRun ? '[dry run] ' : ''}? ${label} -> review (${guess}, ${r?.confidence?.toFixed(2) ?? 'n/a'}): ${r?.reason ?? 'missing'}`);
@@ -261,6 +260,17 @@ function withBudgetLock(fn) {
   const next = budgetQueue.then(fn);
   budgetQueue = next.catch(() => {});
   return next;
+}
+
+async function withOpenBudget(config, fn) {
+  return withBudgetLock(async () => {
+    await openBudget(config.actual);
+    try {
+      return await fn();
+    } finally {
+      await closeBudget().catch((err) => log('Close failed:', err?.message ?? err));
+    }
+  });
 }
 
 let running = false;
@@ -285,28 +295,23 @@ async function runOnce(config, { emails = true, trigger = 'schedule' } = {}) {
   }
   running = true;
   const run = { trigger, startedAt: new Date().toISOString(), finishedAt: null, ok: false };
+  log(`Run started${trigger === 'web' ? ' (from web page)' : ''}${config.dryRun ? ' (DRY_RUN: nothing will be written to Actual)' : ''}`);
   try {
-    await withBudgetLock(async () => {
+    await withOpenBudget(config, async () => {
       const state = loadState(config.actual.dataDir);
-      log(`Run started${trigger === 'web' ? ' (from web page)' : ''}${config.dryRun ? ' (DRY_RUN: nothing will be written to Actual)' : ''}`);
-      try {
-        await openBudget(config.actual);
-        const lookups = await loadLookups();
-        // Files first, so bank data is in place before emails are checked against it.
-        let ok = await step('File import', () => ingestFiles(config, lookups));
-        if (emails) ok = (await step('Email import', () => ingestEmails(config, lookups, state))) && ok;
-        ok = (await step('Categorize', () => categorize(config, lookups, state))) && ok;
-        await backup(config, state);
-        state.save();
-        run.ok = ok;
-        log('Run finished');
-      } catch (err) {
-        log('Run failed:', err?.stack ?? err);
-        process.exitCode = 1;
-      } finally {
-        await closeBudget().catch((err) => log('Close failed:', err?.message ?? err));
-      }
+      const lookups = await loadLookups();
+      // Files first, so bank data is in place before emails are checked against it.
+      let ok = await step('File import', () => ingestFiles(config, lookups));
+      if (emails) ok = (await step('Email import', () => ingestEmails(config, lookups, state))) && ok;
+      ok = (await step('Categorize', () => categorize(config, lookups, state))) && ok;
+      await backup(config, state);
+      state.save();
+      run.ok = ok;
+      log('Run finished');
     });
+  } catch (err) {
+    log('Run failed:', err?.stack ?? err);
+    process.exitCode = 1;
   } finally {
     run.finishedAt = new Date().toISOString();
     lastRun = run;
@@ -315,17 +320,6 @@ async function runOnce(config, { emails = true, trigger = 'schedule' } = {}) {
 }
 
 // --- Web page API -----------------------------------------------------------
-
-async function withOpenBudget(config, fn) {
-  return withBudgetLock(async () => {
-    await openBudget(config.actual);
-    try {
-      return await fn();
-    } finally {
-      await closeBudget().catch((err) => log('Close failed:', err?.message ?? err));
-    }
-  });
-}
 
 async function listReviews(config) {
   return withOpenBudget(config, async () => {

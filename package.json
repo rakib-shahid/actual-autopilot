@@ -1,7 +1,7 @@
 {
   "name": "actual-autopilot",
   "version": "0.1.0",
-  "description": "Reads bank alert emails from Gmail, adds them to Actual Budget, and categorizes uncategorized transactions with Claude.",
+  "description": "Reads bank alert emails from Gmail, adds them to Actual Budget, and categorizes uncategorized transactions with Gemini.",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
@@ -16,7 +16,6 @@
   "private": true,
   "dependencies": {
     "@actual-app/api": "^26.9.0",
-    "@anthropic-ai/sdk": "^0.129.0",
     "csv-parse": "^7.0.3",
     "imapflow": "^2.1.2",
     "mailparser": "^3.9.31",

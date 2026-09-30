@@ -2,7 +2,7 @@ import { format } from 'node:util';
 
 // Keeps the app's own recent log lines (the timestamped ones, not Actual's
 // debug output) so the web page can show what the last runs did.
-const MAX_LINES = 300;
+const MAX_LINES = 150;
 const lines = [];
 
 export function captureLogs() {
@@ -18,4 +18,4 @@ export function captureLogs() {
   }
 }
 
-export const recentLogs = (count = 150) => lines.slice(-count);
+export const recentLogs = () => [...lines];

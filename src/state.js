@@ -1,10 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { DAY_MS } from './dedupe.js';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-// Remembers which emails were already handled so each email costs one Claude
-// call at most, when the last backup ran, and why Claude flagged transactions
+// Remembers which emails were already handled so each email costs one Gemini
+// call at most, when the last backup ran, and why Gemini flagged transactions
 // for review (shown in the web page). Losing this file is safe: the duplicate
 // check in dedupe.js still stops re-imports.
 export function loadState(dataDir) {

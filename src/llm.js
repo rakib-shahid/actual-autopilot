@@ -1,8 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { z } from 'zod';
-
-const client = new Anthropic();
 
 export const ExtractionSchema = z.object({
   is_transaction: z.boolean(),
@@ -47,31 +43,74 @@ You get their category list, examples of how they categorized past transactions,
 - Return one result for every transaction id you were given.`;
 
 // Pulling fields out of an alert email and matching payees to categories are
-// simple jobs, so the cheapest model is the default.
-const MODEL = process.env.CLAUDE_MODEL || 'claude-haiku-4-5';
-// Haiku 4.5 rejects the effort setting, so only send it to models that take it.
-const EFFORT = /haiku/.test(MODEL) ? undefined : process.env.CLAUDE_EFFORT || undefined;
+// simple jobs, so the lightest model is the default.
+const MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+// Stay under the free tier's per-minute and per-day request limits (see
+// https://aistudio.google.com/rate-limit). Past the daily cap, calls return null
+// and callers retry on a later run.
+const RPM = Number(process.env.GEMINI_RPM) || 10;
+const RPD = Number(process.env.GEMINI_RPD) || 200;
+
+const log = (...args) => console.log(new Date().toISOString(), ...args);
+// Google resets daily quotas at midnight Pacific.
+const pacificDay = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+
+// ponytail: counts live in memory, so a restart resets today's count. Google's
+// own quota still caps it, and a project without billing can't be charged.
+const usage = { day: null, count: 0, nextAt: 0, pausedUntil: 0 };
+
+async function takeSlot() {
+  const now = Date.now();
+  if (now < usage.pausedUntil) return false;
+  if (usage.day !== pacificDay()) Object.assign(usage, { day: pacificDay(), count: 0 });
+  if (usage.count >= RPD) {
+    if (usage.count++ === RPD) log(`Gemini: reached GEMINI_RPD=${RPD} requests today; the rest waits for midnight Pacific`);
+    return false;
+  }
+  const wait = usage.nextAt - now;
+  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+  usage.nextAt = Math.max(now, usage.nextAt) + 60_000 / RPM;
+  usage.count++;
+  return true;
+}
 
 async function parse(system, user, schema) {
-  const response = await client.messages.parse({
-    model: MODEL,
-    max_tokens: 16000,
-    system,
-    messages: [{ role: 'user', content: user }],
-    output_config: {
-      ...(EFFORT ? { effort: EFFORT } : {}),
-      format: zodOutputFormat(schema),
-    },
+  if (!(await takeSlot())) return null;
+  const { $schema, ...jsonSchema } = z.toJSONSchema(schema);
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY ?? '' },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: system }] },
+      contents: [{ role: 'user', parts: [{ text: user }] }],
+      generationConfig: { maxOutputTokens: 16000, responseMimeType: 'application/json', responseJsonSchema: jsonSchema },
+    }),
   });
-  if (response.stop_reason === 'refusal') {
-    console.warn(`Claude declined: ${response.stop_details?.explanation ?? 'no explanation'}`);
+  if (res.status === 429) {
+    // Over a free-tier limit anyway: stop asking for a while instead of hammering it.
+    usage.pausedUntil = Date.now() + 15 * 60_000;
+    log('Gemini: rate limited (429); pausing Gemini calls for 15 minutes');
     return null;
   }
-  if (response.stop_reason === 'max_tokens') {
-    console.warn('Claude hit max_tokens; skipping this batch');
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`Gemini ${res.status}: ${body.error?.message ?? res.statusText}`);
+
+  const candidate = body.candidates?.[0];
+  if (!candidate || candidate.finishReason !== 'STOP') {
+    log(`Gemini: no answer (${body.promptFeedback?.blockReason ?? candidate?.finishReason ?? 'empty'}); skipping`);
     return null;
   }
-  return response.parsed_output ?? null;
+  const text = candidate.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
+  let data = null;
+  try {
+    data = JSON.parse(text);
+  } catch {}
+  const parsed = schema.safeParse(data);
+  if (!parsed.success) {
+    log('Gemini: answer did not match the schema; skipping');
+    return null;
+  }
+  return parsed.data;
 }
 
 export async function extractTransaction(email) {

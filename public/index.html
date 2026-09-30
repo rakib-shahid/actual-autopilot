@@ -83,7 +83,7 @@
         <button id="refresh">Refresh</button>
       </div>
     </div>
-    <p class="small muted" style="margin:6px 0 0">Transactions Claude wasn't confident about. Pick a category and save, or skip to leave it uncategorized (Claude won't try it again).</p>
+    <p class="small muted" style="margin:6px 0 0">Transactions Gemini wasn't confident about. Pick a category and save, or skip to leave it uncategorized (Gemini won't try it again).</p>
     <div id="reviews"><div class="empty">Loading from Actual…</div></div>
   </section>
 
@@ -187,7 +187,7 @@ function render() {
   $('reviewCount').textContent = items.length ? `(${items.length})` : '';
   $('approveAll').hidden = data.dryRun || !items.some((i) => i.guess);
   if (!items.length) {
-    $('reviews').innerHTML = '<div class="empty">Nothing to review. Claude was confident about everything.</div>';
+    $('reviews').innerHTML = '<div class="empty">Nothing to review. Gemini was confident about everything.</div>';
     return;
   }
   $('reviews').innerHTML = items.map((i) => {
@@ -196,7 +196,7 @@ function render() {
     return `<div class="item" data-id="${esc(i.id)}">
       <div><div class="payee">${esc(i.payee)}</div><div class="small muted">${esc(i.date)} · ${esc(i.account)}</div></div>
       <div class="amount ${out ? 'out' : 'in'}">${out ? '−' : '+'}$${esc(i.amount.replace('-', ''))}</div>
-      ${i.reason || conf ? `<div class="reason">${i.guess ? 'Claude’s guess is preselected' : 'No guess'}${esc(conf)}${i.reason ? ': ' + esc(i.reason) : ''}</div>` : ''}
+      ${i.reason || conf ? `<div class="reason">${i.guess ? 'Gemini’s guess is preselected' : 'No guess'}${esc(conf)}${i.reason ? ': ' + esc(i.reason) : ''}</div>` : ''}
       <div class="actions">
         <select aria-label="Category for ${esc(i.payee)}">${options(i.guess)}</select>
         <button class="primary save"${data.dryRun ? ' disabled' : ''}>Save</button>
