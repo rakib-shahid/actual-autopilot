@@ -15,7 +15,12 @@ export function cleanEmailText(text) {
     .slice(0, 4000);
 }
 
-// Read-only: opens the mailbox without marking anything as read.
+// Only emails that mention a dollar amount can report a transaction, so the
+// rest never cost a Gemini request.
+export const mentionsMoney = (email) => /\$\s?\d/.test(`${email.subject}\n${email.text}`);
+
+// Read-only: opens the mailbox without marking anything as read. With no
+// senders it reads all mail except what you sent yourself.
 export async function fetchAlertEmails({ user, appPassword, mailbox, senders, lookbackDays }) {
   const client = new ImapFlow({
     host: 'imap.gmail.com',
@@ -31,14 +36,17 @@ export async function fetchAlertEmails({ user, appPassword, mailbox, senders, lo
   await client.connect();
   try {
     await client.mailboxOpen(mailbox, { readOnly: true });
-    const query = senders.length === 1
-      ? { since, from: senders[0] }
-      : { since, or: senders.map((from) => ({ from })) };
+    const query = senders.length === 0
+      ? { since }
+      : senders.length === 1
+        ? { since, from: senders[0] }
+        : { since, or: senders.map((from) => ({ from })) };
     const uids = await client.search(query, { uid: true });
     if (!uids || uids.length === 0) return emails;
 
     for await (const msg of client.fetch(uids, { source: true, envelope: true }, { uid: true })) {
       const parsed = await simpleParser(msg.source);
+      if (parsed.from?.value?.some((a) => a.address?.toLowerCase() === user.toLowerCase())) continue;
       emails.push({
         messageId: parsed.messageId || `uid-${msg.uid}`,
         from: parsed.from?.text ?? '',

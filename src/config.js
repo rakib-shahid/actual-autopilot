@@ -1,15 +1,5 @@
 // All settings come from environment variables so secrets never live in the repo.
 
-const DEFAULT_SENDERS = [
-  'capitalone@notification.capitalone.com',
-  'no.reply.alerts@chase.com',
-  'alerts@info.americanexpress.com',
-  'discover@services.discover.com',
-  'alerts@citibank.com',
-  'venmo@venmo.com',
-  'service@paypal.com',
-];
-
 function required(name) {
   const value = process.env[name];
   if (!value) throw new Error(`Missing required environment variable ${name}`);
@@ -50,10 +40,11 @@ export function loadConfig() {
       user: process.env.GMAIL_USER,
       appPassword: process.env.GMAIL_APP_PASSWORD,
       mailbox: process.env.GMAIL_MAILBOX || '[Gmail]/All Mail',
-      senders: (process.env.ALERT_SENDERS || DEFAULT_SENDERS.join(','))
+      // Empty (or "*") reads every email; a comma-separated list limits it to those senders.
+      senders: (process.env.ALERT_SENDERS ?? '')
         .split(',')
         .map((s) => s.trim())
-        .filter(Boolean),
+        .filter((s) => s && s !== '*'),
       lookbackDays: num('LOOKBACK_DAYS', 3),
     },
     // Maps the last 4 digits a bank email mentions to an Actual account name,

@@ -4,7 +4,7 @@ Reads bank alert emails from Gmail, adds each transaction to a self-hosted [Actu
 
 ## What a run does (every 2 hours by default)
 
-1. **Ingest.** Reads alert emails from the senders in `ALERT_SENDERS` over IMAP (read-only). Gemini pulls out the date, amount, payee and card, so it keeps working when a bank changes its email layout. Statements, reminders and "upcoming payment" emails are skipped. Each email is handled once (tracked in `/data`), and each transaction goes through the duplicate check below, so a charge already imported from a bank file isn't added again.
+1. **Ingest.** Reads your email over IMAP (read-only): every email by default, or only the senders in `ALERT_SENDERS`. Emails that don't mention a dollar amount are skipped without asking Gemini. Gemini pulls out the date, amount, payee and card, so it keeps working when a bank changes its email layout. Bank alerts, receipts and payment-portal confirmations count; statements, reminders, future-dated payments and marketing are skipped. It reuses your existing Actual payee names, and several emails about one payment (say a rent portal receipt and the bank's withdrawal notice) become one transaction through the duplicate check below. Receipts that don't name a card are skipped, since the bank's alert for the same charge will. Each email is handled once (tracked in `/data`), and each transaction goes through the duplicate check below, so a charge already imported from a bank file isn't added again.
 2. **Categorize.** Collects uncategorized transactions from the last `CATEGORIZE_DAYS`, whether they came from email, a CSV import or manual entry. Sends them to Gemini with your category list and how you categorized each payee before.
 3. **Apply.** Picks at or above `MIN_CONFIDENCE` get the category and an `auto: Gemini` note (older ones say `auto: Claude`). Everything else keeps no category and gets `#review maybe <guess>` in its notes. Search `#review` in Actual to go through them.
 
@@ -75,7 +75,7 @@ The container runs as uid 1000, so the import, done, and backup folders on the h
 | `ACTUAL_E2E_PASSWORD` | | only for end-to-end encrypted budgets |
 | `NODE_EXTRA_CA_CERTS` | | path to Actual's CA cert if it's self-signed |
 | `GMAIL_USER` / `GMAIL_APP_PASSWORD` | | email ingest is skipped if unset |
-| `ALERT_SENDERS` | Capital One, Chase, Amex, Discover, Citi, Venmo, PayPal | comma-separated |
+| `ALERT_SENDERS` | all mail | comma-separated senders to limit email reading to; empty or `*` = all |
 | `LOOKBACK_DAYS` | `3` | how far back each run looks in Gmail |
 | `ACCOUNT_MAP` | `{}` | `{"1234": "Checking"}` |
 | `GEMINI_API_KEY` | required | from https://aistudio.google.com/apikey, on a project without billing |

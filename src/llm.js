@@ -21,15 +21,15 @@ export const CategorizationSchema = z.object({
   ),
 });
 
-const EXTRACT_SYSTEM = `You read bank and card alert emails and pull out the single money movement they report.
+const EXTRACT_SYSTEM = `You read one person's emails and pull out the single money movement an email reports, if any. Most emails report none.
 
-A transaction is money that already left or entered an account: a purchase, withdrawal, debit, transfer, deposit or refund. Statements, balance summaries, payment reminders, scheduled or upcoming payments, credit score updates and marketing are not transactions; set is_transaction to false for those.
+A transaction is money that left or entered one of their accounts: a purchase, withdrawal, debit, transfer, deposit or refund. Bank and card alerts count, and so do receipts and payment confirmations from merchants, landlords and payment portals for a payment made or submitted on a given date. Statements, balance summaries, payment reminders, payments scheduled for a later date, credit score updates, newsletters, promotions and marketing are not transactions; set is_transaction to false for those.
 
 For a transaction:
 - date: the date the money moved, as YYYY-MM-DD. Use the email's sent date if the body gives none.
 - amount: a positive number in dollars, e.g. 42.17.
 - direction: "outflow" for money leaving the account, "inflow" for money arriving.
-- payee: the merchant or counterparty as a short, clean name (e.g. "AT&T" rather than "ATT*BILL PAYMENT 800-331").
+- payee: the merchant or counterparty as a short, clean name (e.g. "AT&T" rather than "ATT*BILL PAYMENT 800-331"). If it is the same business as one of the known payees, use that known payee's exact name, so emails from a payment portal and from the bank about one payment land on the same payee (e.g. a rent portal receipt and the bank's withdrawal notice both name the landlord).
 - account_last4: the last 4 digits of the account or card the email names, or null.
 Always explain your call briefly in reason.`;
 
@@ -113,8 +113,11 @@ async function parse(system, user, schema) {
   return parsed.data;
 }
 
-export async function extractTransaction(email) {
+export async function extractTransaction(email, payeeNames = []) {
   const user = [
+    // ponytail: whole payee list in every request, capped; send only likely matches if it grows past this.
+    `<known_payees>${payeeNames.slice(0, 800).join(' | ')}</known_payees>`,
+    '',
     `From: ${email.from}`,
     `Subject: ${email.subject}`,
     `Sent: ${email.date}`,

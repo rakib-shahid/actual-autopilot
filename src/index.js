@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import cron from 'node-cron';
 import * as api from '@actual-app/api';
 import { loadConfig } from './config.js';
-import { fetchAlertEmails } from './gmail.js';
+import { fetchAlertEmails, mentionsMoney } from './gmail.js';
 import { extractTransaction, categorizeTransactions } from './llm.js';
 import { loadState } from './state.js';
 import { planImports, dateRange } from './dedupe.js';
@@ -62,15 +62,16 @@ async function ingestEmails(config, lookups, state) {
     return;
   }
 
-  const emails = await fetchAlertEmails(config.gmail);
-  log(`Found ${emails.length} alert email(s) in the last ${config.gmail.lookbackDays} day(s)`);
+  const all = await fetchAlertEmails(config.gmail);
+  const emails = all.filter(mentionsMoney);
+  log(`Found ${all.length} email(s) in the last ${config.gmail.lookbackDays} day(s), ${emails.length} mention an amount`);
 
   for (const email of emails) {
     const seen = state.emails[email.messageId];
     if (seen && seen.status !== 'unmapped') continue;
 
     // Reuse the earlier extraction for emails waiting on an ACCOUNT_MAP entry.
-    const extraction = seen?.extraction ?? (await extractTransaction(email));
+    const extraction = seen?.extraction ?? (await extractTransaction(email, lookups.payeeNames));
     const record = { seenAt: seen?.seenAt ?? new Date().toISOString(), subject: email.subject, extraction };
 
     if (!extraction) {
@@ -84,8 +85,14 @@ async function ingestEmails(config, lookups, state) {
     }
 
     const account = findAccount(lookups.accounts, config.accountMap, extraction.account_last4);
+    if (!account && !extraction.account_last4) {
+      // Receipts often don't name the card; the bank's own alert for the same charge will.
+      log(`  - skip "${email.subject}": ${extraction.payee} $${extraction.amount.toFixed(2)} doesn't say which account`);
+      state.emails[email.messageId] = { ...record, status: 'no_account' };
+      continue;
+    }
     if (!account) {
-      log(`  ! "${email.subject}": no ACCOUNT_MAP entry for card/account ending ${extraction.account_last4 ?? '(none)'}`);
+      log(`  ! "${email.subject}": no ACCOUNT_MAP entry for card/account ending ${extraction.account_last4}`);
       state.emails[email.messageId] = { ...record, status: 'unmapped' };
       continue;
     }

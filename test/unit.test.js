@@ -59,3 +59,10 @@ test('schemas accept the shapes Gemini is asked for', () => {
   });
   CategorizationSchema.parse({ results: [{ id: 't1', category_id: null, confidence: 0.2, reason: 'unknown' }] });
 });
+
+test('only emails that mention a dollar amount go to Gemini', async () => {
+  const { mentionsMoney } = await import('../src/gmail.js');
+  assert.ok(mentionsMoney({ subject: 'Payment Received', text: 'Total Payment $1,234.56' }));
+  assert.ok(mentionsMoney({ subject: 'You spent $ 12.00', text: '' }));
+  assert.ok(!mentionsMoney({ subject: 'Garage cleaning Monday', text: 'Please move your car.' }));
+});

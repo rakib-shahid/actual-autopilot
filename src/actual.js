@@ -90,6 +90,8 @@ export async function loadLookups() {
       .filter((c) => !c.hidden)
       .map((c) => ({ id: c.id, name: c.name, group: groupName.get(c.group_id) ?? '', is_income: c.is_income })),
     payeeName: new Map(payees.map((p) => [p.id, p.name])),
+    // Real payees only; transfer payees are accounts, not merchants.
+    payeeNames: payees.filter((p) => p.name && !p.transfer_acct).map((p) => p.name),
   };
 }
 
