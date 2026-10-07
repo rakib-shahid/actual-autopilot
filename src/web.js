@@ -79,17 +79,11 @@ export function startWebServer({ port, password, publicDir, api, log }) {
         res.setHeader('content-disposition', `attachment; filename="transactions-${data.range.from}-to-${data.range.to}.csv"`);
         return send(res, 200, toCsv(data.rows), 'text/csv; charset=utf-8');
       }
-      if (req.method === 'GET' && url.pathname === '/api/review') return send(res, 200, await api.review());
-      if (req.method === 'GET' && url.pathname === '/api/recent') return send(res, 200, await api.recent());
-      if (req.method === 'POST' && url.pathname === '/api/notes') {
+      if (req.method === 'GET' && url.pathname === '/api/inbox') return send(res, 200, await api.inbox());
+      if (req.method === 'POST' && url.pathname === '/api/inbox') {
         const body = await readJson(req);
         if (!Array.isArray(body.updates)) return send(res, 400, { error: 'updates must be an array' });
-        return send(res, 200, await api.saveNotes(body.updates));
-      }
-      if (req.method === 'POST' && url.pathname === '/api/review') {
-        const body = await readJson(req);
-        if (!Array.isArray(body.decisions)) return send(res, 400, { error: 'decisions must be an array' });
-        return send(res, 200, await api.decide(body.decisions));
+        return send(res, 200, await api.saveInbox(body.updates));
       }
       send(res, 404, { error: 'not found' });
     } catch (err) {

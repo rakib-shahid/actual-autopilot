@@ -462,47 +462,9 @@ async function tidyNotes(config, lookups) {
   for (const t of old) await updateFields(t.id, { notes: tagNotes(t.notes) });
 }
 
-// Transactions the app created or annotated recently, for the web page.
-async function listRecent(config) {
-  return withOpenBudget(config, async () => {
-    const lookups = await loadLookups();
-    const txns = await recentTransactions(lookups.accounts, daysAgo(30), isoDate(new Date()));
-    const items = txns
-      .filter((t) => ((t.notes ?? '').includes(TAG) || hasOldTags(t.notes)) && !isPendingReview(t.notes))
-      .sort((a, b) => b.date.localeCompare(a.date))
-      .slice(0, 200)
-      .map((t) => ({
-        id: t.id,
-        date: t.date,
-        payee: lookups.payeeName.get(t.payee) ?? t.imported_payee ?? '(no payee)',
-        account: t.accountName,
-        amount: formatAmount(t.amount),
-        notes: editableNotes(t.notes),
-      }));
-    return { items, dryRun: config.dryRun };
-  });
-}
-
-// updates: [{ id, notes }]. Saves your text with #autopilot at the end.
-async function saveNotes(config, updates) {
-  if (config.dryRun) return { saved: 0, dryRun: true };
-  return withOpenBudget(config, async () => {
-    const lookups = await loadLookups();
-    const txns = await recentTransactions(lookups.accounts, daysAgo(60), isoDate(new Date()));
-    const byId = new Map(txns.map((t) => [t.id, t]));
-    let saved = 0;
-    for (const u of updates) {
-      const t = byId.get(u?.id);
-      if (!t || typeof u.notes !== 'string') continue;
-      await updateFields(t.id, { notes: tagNotes(u.notes.slice(0, 1000)) });
-      saved++;
-    }
-    log(`Web page: notes saved on ${saved} transaction(s)`);
-    return { saved };
-  });
-}
-
-async function listReviews(config) {
+// The web page's "To check" list: transactions waiting for a category, then
+// ones autopilot added in the last 30 days that you haven't marked done.
+async function listInbox(config) {
   return withOpenBudget(config, async () => {
     const state = loadState(config.actual.dataDir);
     const lookups = await loadLookups();
@@ -510,50 +472,63 @@ async function listReviews(config) {
     const categories = lookups.categories
       .map((c) => ({ id: c.id, label: `${c.group} / ${c.name}`, income: !!c.is_income }))
       .sort((a, b) => a.label.localeCompare(b.label));
-    const items = txns
-      .filter((t) => isPendingReview(t.notes))
-      .sort((a, b) => b.date.localeCompare(a.date))
-      .map((t) => ({
-        id: t.id,
-        date: t.date,
-        payee: lookups.payeeName.get(t.payee) ?? t.imported_payee ?? '(no payee)',
-        account: t.accountName,
-        amount: formatAmount(t.amount),
-        notes: editableNotes(t.notes),
-        guess: guessedCategory(t.notes, lookups.categories)?.id ?? null,
-        confidence: state.reviews[t.id]?.confidence ?? null,
-        reason: state.reviews[t.id]?.reason ?? '',
-      }));
+    const since = daysAgo(30);
+    const byDate = (a, b) => b.date.localeCompare(a.date);
+    const review = txns.filter((t) => isPendingReview(t.notes)).sort(byDate);
+    const added = txns
+      .filter((t) => t.date >= since && !state.resolved[t.id] && !isPendingReview(t.notes))
+      .filter((t) => (t.notes ?? '').includes(TAG) || hasOldTags(t.notes))
+      .sort(byDate);
+    const item = (t, kind) => ({
+      id: t.id,
+      kind,
+      date: t.date,
+      payee: lookups.payeeName.get(t.payee) ?? t.imported_payee ?? '(no payee)',
+      account: t.accountName,
+      amount: formatAmount(t.amount),
+      notes: editableNotes(t.notes),
+      category: kind === 'review' ? guessedCategory(t.notes, lookups.categories)?.id ?? null : t.category ?? null,
+      confidence: kind === 'review' ? state.reviews[t.id]?.confidence ?? null : null,
+      reason: kind === 'review' ? state.reviews[t.id]?.reason ?? '' : '',
+    });
+    const items = [...review.map((t) => item(t, 'review')), ...added.map((t) => item(t, 'new'))].slice(0, 300);
     return { items, categories, dryRun: config.dryRun };
   });
 }
 
-// decisions: [{ id, category_id, skip, notes }]. Without notes, the current notes
-// are re-read so a stale page can't overwrite them.
-async function applyDecisions(config, decisions) {
-  if (config.dryRun) return { applied: 0, dryRun: true };
+// updates: [{ id, category_id, notes, skip }]. Saves category and notes (your
+// text, then #autopilot) and marks the row done so it leaves the list. A row
+// waiting for a category needs one, or skip.
+async function saveInbox(config, updates) {
+  if (config.dryRun) return { saved: 0, dryRun: true };
   return withOpenBudget(config, async () => {
     const state = loadState(config.actual.dataDir);
     const lookups = await loadLookups();
     const validCategory = new Set(lookups.categories.map((c) => c.id));
     const txns = await recentTransactions(lookups.accounts, daysAgo(config.categorize.historyDays), isoDate(new Date()));
     const byId = new Map(txns.map((t) => [t.id, t]));
-    let applied = 0;
-    for (const d of decisions) {
-      const t = byId.get(d?.id);
-      if (!t || !isPendingReview(t.notes)) continue;
-      const base = typeof d.notes === 'string' ? d.notes.slice(0, 1000) : t.notes;
-      if (d.skip) {
-        await updateFields(t.id, { notes: resolvedNotes(base, { skipped: true }) });
-      } else if (validCategory.has(d.category_id)) {
-        await updateFields(t.id, { category: d.category_id, notes: resolvedNotes(base) });
-      } else continue;
-      delete state.reviews[t.id];
-      applied++;
+    let saved = 0;
+    for (const u of updates) {
+      const t = byId.get(u?.id);
+      if (!t) continue;
+      const notes = typeof u.notes === 'string' ? u.notes.slice(0, 1000) : editableNotes(t.notes);
+      if (isPendingReview(t.notes)) {
+        if (u.skip) await updateFields(t.id, { notes: resolvedNotes(notes, { skipped: true }) });
+        else if (validCategory.has(u.category_id)) await updateFields(t.id, { category: u.category_id, notes: resolvedNotes(notes) });
+        else continue;
+        delete state.reviews[t.id];
+      } else {
+        const fields = { notes: tagNotes(notes) };
+        const wanted = u.category_id || null;
+        if (u.category_id !== undefined && wanted !== (t.category ?? null) && (!wanted || validCategory.has(wanted))) fields.category = wanted;
+        await updateFields(t.id, fields);
+      }
+      state.resolved[t.id] = new Date().toISOString();
+      saved++;
     }
     state.save();
-    log(`Web page: ${applied} review decision(s) saved`);
-    return { applied };
+    log(`Web page: ${saved} transaction(s) marked done`);
+    return { saved };
   });
 }
 
@@ -699,10 +674,8 @@ if (config.runOnce) {
           runOnce(config, { trigger: 'web' });
           return true;
         },
-        review: () => listReviews(config),
-        recent: () => listRecent(config),
-        saveNotes: (updates) => saveNotes(config, updates),
-        decide: (decisions) => applyDecisions(config, decisions),
+        inbox: () => listInbox(config),
+        saveInbox: (updates) => saveInbox(config, updates),
       },
     });
   }

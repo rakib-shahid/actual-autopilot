@@ -19,89 +19,76 @@
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  main { max-width: 960px; margin: 0 auto; padding: 20px 16px 48px; }
+  main { max-width: 880px; margin: 0 auto; padding: 20px 16px 48px; }
   header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
-  h1 { font-size: 20px; margin: 0; flex: 1; }
-  h2 { font-size: 16px; margin: 0; }
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 16px; margin-bottom: 16px; }
-  .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .spread { justify-content: space-between; }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 16px; margin: 0; display: flex; align-items: center; gap: 8px; }
+  .grow { flex: 1; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 16px; margin-bottom: 16px; }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .muted { color: var(--muted); }
   .small { font-size: 13px; }
-  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--chip); font-size: 13px; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .status { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
   .dot.on { background: var(--accent); animation: pulse 1s infinite alternate; }
   .dot.ok { background: var(--good); } .dot.fail { background: var(--bad); }
   @keyframes pulse { to { opacity: .35; } }
+  .count { background: var(--chip); border-radius: 999px; padding: 1px 9px; font-size: 13px; font-weight: 600; }
   button, a.button { font: inherit; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 7px 14px; cursor: pointer; text-decoration: none; display: inline-block; }
   button.primary, a.button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
-  input[type=date] { font: inherit; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+  button.link { border: 0; background: none; color: var(--muted); padding: 7px 8px; }
   button:disabled { opacity: .5; cursor: default; }
-  select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); max-width: 100%; }
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 12px; }
-  .stat .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-  .stat .value { font-size: 15px; font-weight: 600; }
-  .item { border-top: 1px solid var(--line); padding: 14px 0; display: grid; grid-template-columns: 1fr auto; gap: 6px 16px; }
+  input, select { font: inherit; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); min-width: 0; }
+  input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  select.missing { border-color: var(--warn); }
+  .item { border-top: 1px solid var(--line); padding: 14px 0; transition: opacity .25s, transform .25s; }
   .item:first-child { border-top: 0; }
+  .item.leaving { opacity: 0; transform: translateX(16px); }
+  .top { display: flex; gap: 12px; align-items: baseline; }
   .payee { font-weight: 600; }
-  .amount { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+  .amount { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
   .amount.out { color: var(--bad); } .amount.in { color: var(--good); }
-  .reason { grid-column: 1 / -1; font-size: 13px; color: var(--muted); }
-  .actions { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .actions select { flex: 1; min-width: 200px; }
-  .actions input.notes { flex: 2; min-width: 200px; font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
-  .empty { text-align: center; padding: 24px 0; color: var(--muted); }
-  .banner { background: var(--chip); border-radius: 8px; padding: 8px 12px; font-size: 13px; margin-top: 12px; }
-  .banner.warn { color: var(--warn); }
+  .tag { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+  .tag.review { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+  .tag.new { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
+  .why { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .edit { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto auto; gap: 8px; margin-top: 10px; }
+  .empty { text-align: center; padding: 28px 0; color: var(--muted); }
+  .empty strong { display: block; color: var(--text); font-size: 16px; margin-bottom: 4px; }
+  .banner { background: color-mix(in srgb, var(--warn) 15%, var(--panel)); color: var(--text); border-radius: 10px; padding: 10px 14px; font-size: 14px; margin-bottom: 16px; }
+  details.panel > summary { cursor: pointer; font-weight: 600; list-style: none; display: flex; align-items: center; gap: 8px; }
+  details.panel > summary::before { content: '▸'; color: var(--muted); transition: transform .15s; }
+  details.panel[open] > summary::before { transform: rotate(90deg); }
   pre { margin: 12px 0 0; max-height: 360px; overflow: auto; font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
-  summary { cursor: pointer; font-weight: 600; }
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; }
   .toast.show { opacity: 1; }
-  @media (max-width: 560px) { .item { grid-template-columns: 1fr; } .amount { text-align: left; } }
+  @media (max-width: 640px) { .edit { grid-template-columns: 1fr 1fr; } .edit input { grid-column: 1 / -1; order: -1; } }
 </style>
 </head>
 <body>
 <main>
   <header>
     <h1>Actual Autopilot</h1>
-    <span class="pill" id="state"><span class="dot" id="dot"></span><span id="stateText">Loading…</span></span>
+    <span class="status grow" id="status"><span class="dot" id="dot"></span><span id="statusText">Loading…</span></span>
     <button class="primary" id="scan">Scan now</button>
   </header>
 
-  <section class="panel">
-    <h2>Status</h2>
-    <div class="stats">
-      <div class="stat"><div class="label">Last run</div><div class="value" id="lastRun">–</div><div class="small muted" id="lastRunDetail"></div></div>
-      <div class="stat"><div class="label">Next scheduled run</div><div class="value" id="nextRun">–</div><div class="small muted" id="schedule"></div></div>
-    </div>
-    <div class="banner warn" id="dryBanner" hidden>Dry run is on: scans only log what they would do, and review decisions can't be saved. Set DRY_RUN=false to make changes.</div>
-  </section>
+  <div class="banner" id="dryBanner" hidden>Dry run is on: scans only show what they would do, and changes here can't be saved. Set DRY_RUN=false to go live.</div>
 
   <section class="panel">
-    <div class="row spread">
-      <h2>Needs review <span class="muted" id="reviewCount"></span></h2>
-      <div class="row">
-        <button id="approveAll" hidden>Approve all guesses</button>
-        <button id="refresh">Refresh</button>
-      </div>
+    <div class="row">
+      <h2 class="grow">To check <span class="count" id="count" hidden></span></h2>
+      <button class="link" id="refresh" title="Reload from Actual">Refresh</button>
+      <button id="allDone" hidden>Mark all done</button>
     </div>
-    <p class="small muted" style="margin:6px 0 0">Transactions Gemini wasn't confident about. Pick a category, edit the notes if you like, and save, or skip to leave it uncategorized (Gemini won't try it again).</p>
-    <div id="reviews"><div class="empty">Loading from Actual…</div></div>
+    <p class="small muted" style="margin:4px 0 0">Set the category and notes, then press Done (or Enter in the notes box). Done rows leave this list; everything is saved in Actual.</p>
+    <div id="list"><div class="empty">Loading from Actual…</div></div>
   </section>
 
-  <section class="panel">
-    <div class="row spread">
-      <h2>Added by autopilot <span class="muted" id="recentCount"></span></h2>
-      <button id="refreshRecent">Refresh</button>
-    </div>
-    <p class="small muted" style="margin:6px 0 0">Transactions from the last 30 days that autopilot created or added notes to. Edit the notes and save; #autopilot is kept at the end.</p>
-    <div id="recent"><div class="empty">Loading from Actual…</div></div>
-  </section>
-
-  <section class="panel">
-    <h2>Export</h2>
-    <p class="small muted" style="margin:6px 0 0">Every transaction in a date range as CSV, plus totals by category and account balances.</p>
-    <div class="row" style="margin-top:10px;flex-wrap:wrap">
+  <details class="panel" id="exportBox">
+    <summary>Export</summary>
+    <p class="small muted" style="margin:8px 0 0">Every transaction in a date range as CSV, plus totals by category and account balances.</p>
+    <div class="row" style="margin-top:10px">
       <select id="exPeriod" aria-label="Period">
         <option value="mtd">Month to date</option>
         <option value="last-month">Last month</option>
@@ -113,23 +100,21 @@
       <input type="date" id="exFrom" aria-label="From" hidden>
       <input type="date" id="exTo" aria-label="To" hidden>
       <a class="button primary" id="exCsv" href="#">Download CSV</a>
-      <a class="button" id="exSummary" href="#" target="_blank" rel="noopener">Summary (JSON)</a>
+      <a class="button" id="exSummary" href="#" target="_blank" rel="noopener">Summary</a>
     </div>
-  </section>
+  </details>
 
-  <section class="panel">
-    <details id="logBox">
-      <summary>Recent activity</summary>
-      <pre id="logs"></pre>
-    </details>
-  </section>
+  <details class="panel" id="logBox">
+    <summary>Activity <span class="muted small" id="schedule"></span></summary>
+    <pre id="logs"></pre>
+  </details>
 </main>
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-let data = { items: [], categories: [], dryRun: false };
+let inbox = { items: [], categories: [], dryRun: false };
 let wasRunning = null;
 let pollTimer = null;
 
@@ -141,14 +126,9 @@ function toast(msg) {
   t._h = setTimeout(() => t.classList.remove('show'), 2500);
 }
 
-function when(iso) {
-  if (!iso) return '–';
-  const d = new Date(iso);
-  const mins = Math.round((d - Date.now()) / 60000);
-  const rel = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-  const r = Math.abs(mins) < 60 ? rel.format(mins, 'minute') : Math.abs(mins) < 1440 ? rel.format(Math.round(mins / 60), 'hour') : rel.format(Math.round(mins / 1440), 'day');
-  return `${d.toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })} (${r})`;
-}
+const time = (iso) => new Date(iso).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+const day = (ymd) => new Date(`${ymd}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+const money = (a) => `${a.startsWith('-') ? '−' : '+'}$${Number(a.replace('-', '')).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
@@ -161,27 +141,21 @@ async function loadStatus() {
   try {
     const s = await api('/api/status');
     $('dot').className = 'dot ' + (s.running ? 'on' : s.lastRun ? (s.lastRun.ok ? 'ok' : 'fail') : '');
-    $('stateText').textContent = s.running ? 'Scanning…' : 'Idle';
+    const last = s.lastRun ? `last run ${time(s.lastRun.finishedAt || s.lastRun.startedAt)}${s.lastRun.ok ? '' : ' (had errors, see Activity)'}` : 'no run yet';
+    $('statusText').textContent = s.running ? 'Scanning…' : `${last} · next ${s.nextRun ? time(s.nextRun) : '–'}`;
     $('scan').disabled = s.running;
     $('scan').textContent = s.running ? 'Scanning…' : 'Scan now';
     $('dryBanner').hidden = !s.dryRun;
-    if (s.lastRun) {
-      $('lastRun').textContent = when(s.lastRun.finishedAt || s.lastRun.startedAt);
-      $('lastRunDetail').textContent = `${s.lastRun.ok ? 'Finished' : 'Had errors (see activity)'} · started by ${s.lastRun.trigger}`;
-    } else {
-      $('lastRun').textContent = s.running ? 'Running now' : 'None since the container started';
-    }
-    $('nextRun').textContent = when(s.nextRun);
-    $('schedule').textContent = `Schedule "${s.schedule}" (${s.timezone})`;
+    $('schedule').textContent = `· every run "${s.schedule}" (${s.timezone})`;
     const logs = $('logs');
     const atBottom = logs.scrollTop + logs.clientHeight >= logs.scrollHeight - 20;
     logs.textContent = s.logs.map((l) => l.replace(/^(\S+)/, (t) => new Date(t).toLocaleTimeString())).join('\n') || 'Nothing yet.';
     if (atBottom) logs.scrollTop = logs.scrollHeight;
-    if (wasRunning && !s.running) { loadReviews(); loadRecent(); }
+    if (wasRunning && !s.running) loadInbox();
     wasRunning = s.running;
     schedulePoll(s.running ? 3000 : 30000);
-  } catch (e) {
-    $('stateText').textContent = 'Offline';
+  } catch {
+    $('statusText').textContent = 'Offline';
     schedulePoll(10000);
   }
 }
@@ -191,152 +165,140 @@ function schedulePoll(ms) {
   pollTimer = setTimeout(loadStatus, ms);
 }
 
-async function loadReviews() {
+async function loadInbox() {
   $('refresh').disabled = true;
   try {
-    data = await api('/api/review');
+    inbox = await api('/api/inbox');
     render();
   } catch (e) {
-    $('reviews').innerHTML = `<div class="empty">Couldn't load from Actual: ${esc(e.message)}</div>`;
+    $('list').innerHTML = `<div class="empty">Couldn't load from Actual: ${esc(e.message)}</div>`;
   } finally {
     $('refresh').disabled = false;
   }
 }
 
-function options(selected) {
-  const groups = { expense: [], income: [] };
-  for (const c of data.categories) (c.income ? groups.income : groups.expense).push(c);
+function options(selected, required) {
   const opt = (c) => `<option value="${esc(c.id)}"${c.id === selected ? ' selected' : ''}>${esc(c.label)}</option>`;
-  return `<option value="">Choose a category…</option>` +
-    `<optgroup label="Spending">${groups.expense.map(opt).join('')}</optgroup>` +
-    (groups.income.length ? `<optgroup label="Income">${groups.income.map(opt).join('')}</optgroup>` : '');
+  const spend = inbox.categories.filter((c) => !c.income).map(opt).join('');
+  const income = inbox.categories.filter((c) => c.income).map(opt).join('');
+  return `<option value="">${required ? 'Choose a category…' : 'No category'}</option>` +
+    `<optgroup label="Spending">${spend}</optgroup>` + (income ? `<optgroup label="Income">${income}</optgroup>` : '');
+}
+
+function updateCount() {
+  const n = inbox.items.length;
+  $('count').hidden = !n;
+  $('count').textContent = n;
+  $('allDone').hidden = !n || inbox.dryRun;
+  document.title = n ? `(${n}) Actual Autopilot` : 'Actual Autopilot';
+  if (!n) $('list').innerHTML = '<div class="empty"><strong>All caught up</strong>New transactions show up here after each scan.</div>';
 }
 
 function render() {
-  const items = data.items;
-  $('reviewCount').textContent = items.length ? `(${items.length})` : '';
-  $('approveAll').hidden = data.dryRun || !items.some((i) => i.guess);
-  if (!items.length) {
-    $('reviews').innerHTML = '<div class="empty">Nothing to review. Gemini was confident about everything.</div>';
-    return;
-  }
-  $('reviews').innerHTML = items.map((i) => {
-    const out = i.amount.startsWith('-');
-    const conf = i.confidence != null ? ` · ${Math.round(i.confidence * 100)}% sure` : '';
-    return `<div class="item" data-id="${esc(i.id)}">
-      <div><div class="payee">${esc(i.payee)}</div><div class="small muted">${esc(i.date)} · ${esc(i.account)}</div></div>
-      <div class="amount ${out ? 'out' : 'in'}">${out ? '−' : '+'}$${esc(i.amount.replace('-', ''))}</div>
-      ${i.reason || conf ? `<div class="reason">${i.guess ? 'Gemini’s guess is preselected' : 'No guess'}${esc(conf)}${i.reason ? ': ' + esc(i.reason) : ''}</div>` : ''}
-      <div class="actions">
-        <select aria-label="Category for ${esc(i.payee)}">${options(i.guess)}</select>
-        <input class="notes" aria-label="Notes for ${esc(i.payee)}" placeholder="Notes" value="${esc(i.notes)}">
-        <button class="primary save"${data.dryRun ? ' disabled' : ''}>Save</button>
-        <button class="skip"${data.dryRun ? ' disabled' : ''}>Skip</button>
+  updateCount();
+  if (!inbox.items.length) return;
+  const off = inbox.dryRun ? ' disabled' : '';
+  $('list').innerHTML = inbox.items.map((i) => {
+    const review = i.kind === 'review';
+    const why = review
+      ? `${i.category ? 'Gemini’s guess is selected' : 'Gemini had no guess'}${i.confidence != null ? ` (${Math.round(i.confidence * 100)}% sure)` : ''}${i.reason ? `: ${esc(i.reason)}` : ''}`
+      : '';
+    return `<div class="item" data-id="${esc(i.id)}" data-kind="${i.kind}">
+      <div class="top">
+        <span class="tag ${review ? 'review' : 'new'}">${review ? 'Needs category' : 'New'}</span>
+        <span class="payee">${esc(i.payee)}</span>
+        <span class="amount ${i.amount.startsWith('-') ? 'out' : 'in'}">${money(i.amount)}</span>
+      </div>
+      <div class="small muted">${esc(day(i.date))} · ${esc(i.account)}</div>
+      ${why ? `<div class="why">${why}</div>` : ''}
+      <div class="edit">
+        <select aria-label="Category for ${esc(i.payee)}">${options(i.category, review)}</select>
+        <input class="notes" aria-label="Notes for ${esc(i.payee)}" placeholder="What was this?" value="${esc(i.notes)}">
+        <button class="primary done"${off}>Done</button>
+        ${review ? `<button class="skip" title="Leave uncategorized; Gemini won't try again"${off}>Skip</button>` : '<span></span>'}
       </div>
     </div>`;
   }).join('');
 }
 
-async function decide(decisions) {
-  const res = await api('/api/review', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ decisions }) });
-  const ids = new Set(decisions.map((d) => d.id));
-  data.items = data.items.filter((i) => !ids.has(i.id));
-  render();
-  toast(res.applied === 1 ? 'Saved to Actual' : `Saved ${res.applied} to Actual`);
+const readRow = (row, skip = false) => ({
+  id: row.dataset.id,
+  category_id: row.querySelector('select').value || null,
+  notes: row.querySelector('input.notes').value,
+  ...(skip && { skip: true }),
+});
+
+async function finish(rows, updates) {
+  rows.forEach((r) => r.querySelectorAll('button, input, select').forEach((el) => (el.disabled = true)));
+  try {
+    const res = await api('/api/inbox', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ updates }) });
+    const ids = new Set(updates.map((u) => u.id));
+    rows.forEach((r) => r.classList.add('leaving'));
+    setTimeout(() => {
+      inbox.items = inbox.items.filter((i) => !ids.has(i.id));
+      rows.forEach((r) => r.remove());
+      updateCount();
+      const next = $('list').querySelector('input.notes');
+      if (next && rows.length === 1) next.focus({ preventScroll: true });
+    }, 250);
+    toast(res.saved === 1 ? 'Saved' : `Saved ${res.saved}`);
+  } catch (err) {
+    toast(`Couldn't save: ${err.message}`);
+    rows.forEach((r) => r.querySelectorAll('button, input, select').forEach((el) => (el.disabled = inbox.dryRun)));
+  }
 }
 
-$('reviews').addEventListener('click', async (e) => {
-  const btn = e.target.closest('button');
+function done(row, skip = false) {
+  const u = readRow(row, skip);
+  const sel = row.querySelector('select');
+  if (row.dataset.kind === 'review' && !skip && !u.category_id) {
+    sel.classList.add('missing');
+    sel.focus();
+    return toast('Pick a category, or Skip');
+  }
+  finish([row], [u]);
+}
+
+$('list').addEventListener('click', (e) => {
   const row = e.target.closest('.item');
-  if (!btn || !row) return;
-  const id = row.dataset.id;
-  const category_id = row.querySelector('select').value;
-  if (btn.classList.contains('save') && !category_id) return toast('Pick a category first');
-  row.querySelectorAll('button').forEach((b) => (b.disabled = true));
-  try {
-    const notes = row.querySelector('input.notes').value;
-    await decide([btn.classList.contains('skip') ? { id, skip: true, notes } : { id, category_id, notes }]);
-  } catch (err) {
-    toast(`Failed: ${err.message}`);
-    row.querySelectorAll('button').forEach((b) => (b.disabled = false));
+  if (!row) return;
+  if (e.target.closest('button.done')) done(row);
+  else if (e.target.closest('button.skip')) done(row, true);
+});
+$('list').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.matches('input.notes')) {
+    e.preventDefault();
+    done(e.target.closest('.item'));
   }
 });
-
-$('approveAll').addEventListener('click', async () => {
-  const decisions = [...document.querySelectorAll('.item')]
-    .map((row) => ({ id: row.dataset.id, category_id: row.querySelector('select').value, notes: row.querySelector('input.notes').value }))
-    .filter((d) => d.category_id);
-  if (!decisions.length || !confirm(`Save the selected category for ${decisions.length} transaction(s)?`)) return;
-  $('approveAll').disabled = true;
-  try { await decide(decisions); } catch (err) { toast(`Failed: ${err.message}`); } finally { $('approveAll').disabled = false; }
+$('list').addEventListener('change', (e) => {
+  if (e.target.matches('select')) e.target.classList.remove('missing');
 });
+
+$('allDone').addEventListener('click', () => {
+  const rows = [...$('list').querySelectorAll('.item')];
+  const ready = rows.filter((r) => r.dataset.kind !== 'review' || r.querySelector('select').value);
+  const waiting = rows.length - ready.length;
+  if (!ready.length) return toast('Pick categories first');
+  if (!confirm(`Mark ${ready.length} transaction(s) done with the categories and notes shown?${waiting ? ` ${waiting} without a category stay.` : ''}`)) return;
+  finish(ready, ready.map((r) => readRow(r)));
+});
+
+$('refresh').addEventListener('click', loadInbox);
 
 $('scan').addEventListener('click', async () => {
   $('scan').disabled = true;
   const res = await api('/api/scan', { method: 'POST' }).catch((e) => ({ error: e.message }));
   toast(res.started ? 'Scan started' : res.error ? `Failed: ${res.error}` : 'A scan is already running');
-  $('logBox').open = true;
   loadStatus();
 });
-
-$('refresh').addEventListener('click', loadReviews);
-
-let recent = { items: [], dryRun: false };
-async function loadRecent() {
-  $('refreshRecent').disabled = true;
-  try {
-    recent = await api('/api/recent');
-    renderRecent();
-  } catch (e) {
-    $('recent').innerHTML = `<div class="empty">Couldn't load from Actual: ${esc(e.message)}</div>`;
-  } finally {
-    $('refreshRecent').disabled = false;
-  }
-}
-
-function renderRecent() {
-  const items = recent.items;
-  $('recentCount').textContent = items.length ? `(${items.length})` : '';
-  if (!items.length) {
-    $('recent').innerHTML = '<div class="empty">Nothing added in the last 30 days.</div>';
-    return;
-  }
-  $('recent').innerHTML = items.map((i) => {
-    const out = i.amount.startsWith('-');
-    return `<div class="item" data-id="${esc(i.id)}">
-      <div><div class="payee">${esc(i.payee)}</div><div class="small muted">${esc(i.date)} · ${esc(i.account)}</div></div>
-      <div class="amount ${out ? 'out' : 'in'}">${out ? '−' : '+'}${esc(i.amount.replace('-', ''))}</div>
-      <div class="actions">
-        <input class="notes" aria-label="Notes for ${esc(i.payee)}" placeholder="What was this?" value="${esc(i.notes)}">
-        <button class="primary save-notes"${recent.dryRun ? ' disabled' : ''}>Save notes</button>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-$('recent').addEventListener('click', async (e) => {
-  const btn = e.target.closest('button.save-notes');
-  const row = e.target.closest('.item');
-  if (!btn || !row) return;
-  btn.disabled = true;
-  try {
-    const notes = row.querySelector('input.notes').value;
-    const res = await api('/api/notes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ updates: [{ id: row.dataset.id, notes }] }) });
-    toast(res.saved ? 'Notes saved to Actual' : 'Nothing saved');
-  } catch (err) {
-    toast(`Failed: ${err.message}`);
-  } finally {
-    btn.disabled = recent.dryRun;
-  }
-});
-$('refreshRecent').addEventListener('click', loadRecent);
 
 function exportQuery() {
   const period = $('exPeriod').value;
   const custom = period === 'custom';
   $('exFrom').hidden = $('exTo').hidden = !custom;
   if (!custom) return `period=${period}`;
-  return new URLSearchParams({ ...( $('exFrom').value && { from: $('exFrom').value }), ...($('exTo').value && { to: $('exTo').value }) }).toString();
+  return new URLSearchParams({ ...($('exFrom').value && { from: $('exFrom').value }), ...($('exTo').value && { to: $('exTo').value }) }).toString();
 }
 function updateExportLinks() {
   const q = exportQuery();
@@ -346,8 +308,7 @@ function updateExportLinks() {
 ['exPeriod', 'exFrom', 'exTo'].forEach((id) => $(id).addEventListener('change', updateExportLinks));
 updateExportLinks();
 loadStatus();
-loadReviews();
-loadRecent();
+loadInbox();
 </script>
 </body>
 </html>

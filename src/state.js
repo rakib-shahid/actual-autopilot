@@ -18,6 +18,8 @@ export function loadState(dataDir) {
     emails: state.emails ?? {},
     reviews: state.reviews ?? {},
     receipts: state.receipts ?? {},
+    // Transactions marked done on the web page: id -> when.
+    resolved: state.resolved ?? {},
     lastBackup: state.lastBackup ?? null,
     // Answered "autopilot: ..." request emails, by Message-ID.
     requests: state.requests ?? {},
@@ -30,10 +32,13 @@ export function loadState(dataDir) {
       for (const [id, at] of Object.entries(this.requests)) {
         if (now - new Date(at).getTime() > 7 * DAY_MS) delete this.requests[id];
       }
+      for (const [id, at] of Object.entries(this.resolved)) {
+        if (now - new Date(at).getTime() > 90 * DAY_MS) delete this.resolved[id];
+      }
       for (const [id, entry] of Object.entries(this.reviews)) {
         if (now - new Date(entry.at).getTime() > 180 * DAY_MS) delete this.reviews[id];
       }
-      fs.writeFileSync(file, JSON.stringify({ emails: this.emails, reviews: this.reviews, receipts: this.receipts, lastBackup: this.lastBackup, requests: this.requests }, null, 2));
+      fs.writeFileSync(file, JSON.stringify({ emails: this.emails, reviews: this.reviews, receipts: this.receipts, resolved: this.resolved, lastBackup: this.lastBackup, requests: this.requests }, null, 2));
     },
   };
 }

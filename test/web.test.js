@@ -32,8 +32,8 @@ async function withServer(opts, fn) {
   const api = {
     status: () => ({ running: false, logs: [] }),
     scan: () => (calls.push('scan'), true),
-    review: async () => ({ items: [], categories: [] }),
-    decide: async (d) => (calls.push(d), { applied: d.length }),
+    inbox: async () => ({ items: [], categories: [] }),
+    saveInbox: async (u) => (calls.push(u), { saved: u.length }),
     export: async (params) => {
       if (params.period === 'bad') throw new RangeError('unknown period');
       calls.push(params);
@@ -56,9 +56,9 @@ test('web server serves the page and the JSON API', async () => {
     assert.equal(page.status, 200);
     assert.match(await page.text(), /Actual Autopilot/);
     assert.equal((await fetch(base + '/api/scan', { method: 'POST' })).status, 202);
-    const res = await fetch(base + '/api/review', { method: 'POST', body: JSON.stringify({ decisions: [{ id: 't1', category_id: 'c1' }] }) });
-    assert.deepEqual(await res.json(), { applied: 1 });
-    assert.equal((await fetch(base + '/api/review', { method: 'POST', body: '{"decisions": 5}' })).status, 400);
+    const res = await fetch(base + '/api/inbox', { method: 'POST', body: JSON.stringify({ updates: [{ id: 't1', category_id: 'c1' }] }) });
+    assert.deepEqual(await res.json(), { saved: 1 });
+    assert.equal((await fetch(base + '/api/inbox', { method: 'POST', body: '{"updates": 5}' })).status, 400);
     assert.equal((await fetch(base + '/nope')).status, 404);
     assert.deepEqual(calls, ['scan', [{ id: 't1', category_id: 'c1' }]]);
   });

@@ -37,11 +37,10 @@ Duplicates are checked before importing, across emails, files, and Actual's own 
 
 The container serves a small page on port 8080 (`WEB_PORT`; `0` turns it off):
 
-- **Status:** when the last run finished, whether it had errors, and when the next scheduled run is.
-- **Scan now:** starts a full run (bank files, emails, categorizing) right away.
-- **Needs review:** every transaction Gemini wasn't confident about, with its guess preselected, how sure it was, and why. Save a category (or approve all guesses at once), or skip one to leave it uncategorized; skipped ones get `#review-skipped` so Gemini doesn't try them again.
+- **Header:** when the last run finished (and whether it had errors), when the next one is, and **Scan now**.
+- **To check:** one list of what needs your eyes: transactions Gemini wasn't sure how to categorize (marked *Needs category*, with its guess selected, how sure it was and why), then transactions autopilot added or annotated in the last 30 days (marked *New*). Set the category and notes and press **Done** (or Enter in the notes box); the row is saved to Actual and leaves the list for good. **Skip** leaves a *Needs category* row uncategorized (it gets `#review-skipped` so Gemini doesn't try again). **Mark all done** clears the list with what's shown.
 - **Export:** download a CSV or summary for a period (see Exports below).
-- **Recent activity:** the last few hundred log lines.
+- **Activity:** the recent log lines.
 
 There is no login unless you set `WEB_PASSWORD` (any username). Don't expose the page outside your network without one.
 
