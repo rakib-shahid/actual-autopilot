@@ -89,6 +89,15 @@
   </section>
 
   <section class="panel">
+    <div class="row spread">
+      <h2>Added by autopilot <span class="muted" id="recentCount"></span></h2>
+      <button id="refreshRecent">Refresh</button>
+    </div>
+    <p class="small muted" style="margin:6px 0 0">Transactions from the last 30 days that autopilot created or added notes to. Edit the notes and save; #autopilot is kept at the end.</p>
+    <div id="recent"><div class="empty">Loading from Actual…</div></div>
+  </section>
+
+  <section class="panel">
     <details id="logBox">
       <summary>Recent activity</summary>
       <pre id="logs"></pre>
@@ -148,7 +157,7 @@ async function loadStatus() {
     const atBottom = logs.scrollTop + logs.clientHeight >= logs.scrollHeight - 20;
     logs.textContent = s.logs.map((l) => l.replace(/^(\S+)/, (t) => new Date(t).toLocaleTimeString())).join('\n') || 'Nothing yet.';
     if (atBottom) logs.scrollTop = logs.scrollHeight;
-    if (wasRunning && !s.running) loadReviews();
+    if (wasRunning && !s.running) { loadReviews(); loadRecent(); }
     wasRunning = s.running;
     schedulePoll(s.running ? 3000 : 30000);
   } catch (e) {
@@ -251,8 +260,59 @@ $('scan').addEventListener('click', async () => {
 });
 
 $('refresh').addEventListener('click', loadReviews);
+
+let recent = { items: [], dryRun: false };
+async function loadRecent() {
+  $('refreshRecent').disabled = true;
+  try {
+    recent = await api('/api/recent');
+    renderRecent();
+  } catch (e) {
+    $('recent').innerHTML = `<div class="empty">Couldn't load from Actual: ${esc(e.message)}</div>`;
+  } finally {
+    $('refreshRecent').disabled = false;
+  }
+}
+
+function renderRecent() {
+  const items = recent.items;
+  $('recentCount').textContent = items.length ? `(${items.length})` : '';
+  if (!items.length) {
+    $('recent').innerHTML = '<div class="empty">Nothing added in the last 30 days.</div>';
+    return;
+  }
+  $('recent').innerHTML = items.map((i) => {
+    const out = i.amount.startsWith('-');
+    return `<div class="item" data-id="${esc(i.id)}">
+      <div><div class="payee">${esc(i.payee)}</div><div class="small muted">${esc(i.date)} · ${esc(i.account)}</div></div>
+      <div class="amount ${out ? 'out' : 'in'}">${out ? '−' : '+'}${esc(i.amount.replace('-', ''))}</div>
+      <div class="actions">
+        <input class="notes" aria-label="Notes for ${esc(i.payee)}" placeholder="What was this?" value="${esc(i.notes)}">
+        <button class="primary save-notes"${recent.dryRun ? ' disabled' : ''}>Save notes</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+$('recent').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button.save-notes');
+  const row = e.target.closest('.item');
+  if (!btn || !row) return;
+  btn.disabled = true;
+  try {
+    const notes = row.querySelector('input.notes').value;
+    const res = await api('/api/notes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ updates: [{ id: row.dataset.id, notes }] }) });
+    toast(res.saved ? 'Notes saved to Actual' : 'Nothing saved');
+  } catch (err) {
+    toast(`Failed: ${err.message}`);
+  } finally {
+    btn.disabled = recent.dryRun;
+  }
+});
+$('refreshRecent').addEventListener('click', loadRecent);
 loadStatus();
 loadReviews();
+loadRecent();
 </script>
 </body>
 </html>

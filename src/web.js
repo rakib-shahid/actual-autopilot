@@ -65,6 +65,12 @@ export function startWebServer({ port, password, publicDir, api, log }) {
         return send(res, started ? 202 : 409, { started, status: api.status() });
       }
       if (req.method === 'GET' && url.pathname === '/api/review') return send(res, 200, await api.review());
+      if (req.method === 'GET' && url.pathname === '/api/recent') return send(res, 200, await api.recent());
+      if (req.method === 'POST' && url.pathname === '/api/notes') {
+        const body = await readJson(req);
+        if (!Array.isArray(body.updates)) return send(res, 400, { error: 'updates must be an array' });
+        return send(res, 200, await api.saveNotes(body.updates));
+      }
       if (req.method === 'POST' && url.pathname === '/api/review') {
         const body = await readJson(req);
         if (!Array.isArray(body.decisions)) return send(res, 400, { error: 'decisions must be an array' });

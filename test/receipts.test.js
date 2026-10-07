@@ -52,3 +52,24 @@ test('ordered and shipped emails for one order attach only once', async () => {
   const shipped = { date: '2026-10-06', amount: -2498, payee: 'Amazon', details: 'Vitamins (113-4902473-6853010) · Amazon.com' };
   assert.equal(matchReceipt(shipped, [charge]), null);
 });
+
+test('notes: your text, then #autopilot; old auto: tags removed', async () => {
+  const { tagNotes, hasOldTags, sameOrder, canonicalPayee } = await import('../src/receipts.js');
+  assert.equal(tagNotes('Racetrac · auto: email auto: Gemini'), 'Racetrac #autopilot');
+  assert.equal(tagNotes('auto: email'), '#autopilot');
+  assert.equal(tagNotes(null), '#autopilot');
+  assert.equal(tagNotes('wings #autopilot'), 'wings #autopilot');
+  assert.equal(tagNotes('Supplements · #autopilot'), 'Supplements #autopilot');
+  assert.equal(tagNotes('x auto: email #review maybe Wants / Dining'), 'x #autopilot #review maybe Wants / Dining');
+  assert.ok(hasOldTags('a auto: Gemini') && !hasOldTags('a #autopilot'));
+  // Two $5.33 Anthropic purchases with different receipt numbers stay separate.
+  assert.ok(!sameOrder('2821-4589-4314', 'One-time credit purchase (#2853-1675-8241) #autopilot'));
+  assert.ok(sameOrder('2853-1675-8241', 'One-time credit purchase (#2853-1675-8241) #autopilot'));
+  assert.ok(sameOrder('2853-1675-8241', '#autopilot'));
+  assert.ok(sameOrder(null, 'anything (#1234-5)'));
+  // Existing payees win.
+  const payees = ['Steam', 'Gas Stations', 'Amazon', 'DoorDash'];
+  assert.equal(canonicalPayee('Amazon.com', payees), 'Amazon');
+  assert.equal(canonicalPayee('doordash', payees), 'DoorDash');
+  assert.equal(canonicalPayee('Racetrac', payees), 'Racetrac');
+});

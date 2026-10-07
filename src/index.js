@@ -8,7 +8,7 @@ import { fetchAlertEmails, mentionsMoney } from './gmail.js';
 import { extractTransaction, categorizeTransactions, EXTRACT_VERSION } from './llm.js';
 import { loadState } from './state.js';
 import { planImports, dateRange, DAY_MS } from './dedupe.js';
-import { detailsNote, withDetails, matchReceipt, orderId, RECEIPT_TTL_DAYS } from './receipts.js';
+import { detailsNote, withDetails, matchReceipt, orderId, sameOrder, tagNotes, hasOldTags, canonicalPayee, TAG, RECEIPT_TTL_DAYS } from './receipts.js';
 import { listImportFiles, parseBankCsv, ofxAccountLast4, accountFromFileName, moveFile } from './files.js';
 import { writeBackup } from './backup.js';
 import { REVIEW_TAG, reviewNote, isPendingReview, guessedCategory, resolvedNotes, editableNotes } from './review.js';
@@ -34,17 +34,15 @@ import {
 captureLogs();
 const log =(...args) => console.log(new Date().toISOString(), ...args);
 
-function appendNote(existing, note) {
-  if (!existing) return note;
-  if (existing.includes(note)) return existing;
-  return `${existing} ${note}`;
-}
-
 // Runs the duplicate check against what's already in the account, then imports
-// only the new transactions. Returns what happened to each one.
-async function importIntoAccount(config, account, txns) {
+// only the new transactions. Returns what happened to each one. With an order
+// number, a charge already noted with a different order isn't a match (two
+// separate $5 purchases); run.orders tracks orders matched earlier this run.
+async function importIntoAccount(config, account, txns, { order = null, run = null } = {}) {
   const [start, end] = dateRange(txns);
-  const existing = await accountTransactions(account.id, start, end);
+  const existing = (await accountTransactions(account.id, start, end)).filter((e) =>
+    sameOrder(order, e.notes, run?.orders.get(e.id)),
+  );
   const plan = planImports(existing, txns);
   if (!config.dryRun) {
     for (const a of plan.attach) await updateFields(a.id, { imported_id: a.imported_id, cleared: true });
@@ -77,8 +75,13 @@ async function ingestEmails(config, lookups, state, run) {
     const done = seen && !['unmapped', 'preview'].includes(seen.status) && !(['no_account', 'receipt'].includes(seen.status) && !current);
     if (done && !config.dryRun) continue;
 
-    const extraction = (current && seen.extraction) || (await extractTransaction(email, lookups.payeeNames));
-    const record = { seenAt: seen?.seenAt ?? new Date().toISOString(), subject: email.subject, extraction, v: EXTRACT_VERSION };
+    const answer = (current && seen.extraction) || (await extractTransaction(email, lookups.payeeNames));
+    // Stick to existing payees; keep the name the email used in the notes.
+    const payee = canonicalPayee(answer?.payee, lookups.payeeNames);
+    const extraction = answer && payee !== answer.payee
+      ? { ...answer, payee, merchant_raw: answer.merchant_raw ?? answer.payee }
+      : answer;
+    const record = { seenAt: seen?.seenAt ?? new Date().toISOString(), subject: email.subject, extraction: answer, v: EXTRACT_VERSION };
     // A dry run only caches the Gemini answer; the email still counts as new for the next live run.
     const remember = (status) => {
       state.emails[email.messageId] = { ...record, status: config.dryRun ? (seen?.status ?? 'preview') : status };
@@ -124,15 +127,18 @@ async function ingestEmails(config, lookups, state, run) {
     }
 
     const txn = toImportTransaction(extraction);
-    const { plan, result } = await importIntoAccount(config, account, [txn]);
+    const order = orderId(extraction.details);
+    const { plan, result } = await importIntoAccount(config, account, [txn], { order, run });
     const line = `${txn.date} ${extraction.payee} ${extraction.direction === 'inflow' ? '+' : '-'}$${extraction.amount.toFixed(2)} -> ${account.name}`;
     const prefix = config.dryRun ? '[dry run] ' : '';
     const row = { date: txn.date, account: account.name, payee: extraction.payee, amount: txn.amount, notes: txn.notes, existing: null };
     if (plan.skip.length) {
       // A second email about the same charge may say what was bought.
       const match = plan.skip[0].match;
-      const notes = withDetails(match.notes, detailsNote(extraction));
+      const added = withDetails(match.notes, detailsNote(extraction));
+      const notes = added !== match.notes ? tagNotes(added) : match.notes;
       if (notes !== match.notes && !config.dryRun) await updateFields(match.id, { notes });
+      if (order) run.orders.set(match.id, new Set([...(run.orders.get(match.id) ?? []), order]));
       log(`  ${prefix}= ${line} (already in Actual: ${describeMatch(lookups, match)})`);
       row.existing = { date: match.date, payee: lookups.payeeName.get(match.payee) ?? match.imported_payee ?? '', notes: match.notes ?? '' };
       row.notes = notes;
@@ -177,12 +183,12 @@ async function matchReceipts(config, lookups, run) {
         date: t.date, account: t.accountName, payee: t.payeeName, amount: t.amount, notes: t.notes ?? '',
         existing: { date: t.date, payee: t.payeeName, notes: t.notes ?? '' },
       };
-      row.notes = withDetails(row.notes, r.details);
+      row.notes = tagNotes(withDetails(row.notes, r.details));
       run.rows.set(t.id, row);
       const before = t.notes;
       t.notes = withDetails(t.notes, r.details);
       if (!config.dryRun) {
-        if (!t.id.startsWith('email:')) await updateFields(t.id, { notes: withDetails(before, r.details) });
+        if (!t.id.startsWith('email:')) await updateFields(t.id, { notes: tagNotes(withDetails(before, r.details)) });
         delete run.receipts[id];
       }
     } else if (Date.now() - new Date(r.at).getTime() > RECEIPT_TTL_DAYS * DAY_MS) {
@@ -253,7 +259,7 @@ async function ingestFiles(config, lookups) {
           payee_name: r.payee,
           imported_payee: r.payee,
           ...(r.imported_id ? { imported_id: r.imported_id } : {}),
-          notes: 'auto: file',
+          notes: TAG,
           cleared: true,
         });
       }
@@ -341,12 +347,12 @@ async function categorize(config, lookups, state) {
       const label = `${t.date} ${payee} $${formatAmount(t.amount)}`;
       if (cat && r.confidence >= config.categorize.minConfidence) {
         log(`  ${config.dryRun ? '[dry run] ' : ''}= ${label} -> ${cat.group} / ${cat.name} (${r.confidence.toFixed(2)})`);
-        if (!config.dryRun) await updateFields(t.id, { category: cat.id, notes: appendNote(t.notes, 'auto: Gemini') });
+        if (!config.dryRun) await updateFields(t.id, { category: cat.id, notes: tagNotes(t.notes) });
       } else {
         const guess = cat ? `${cat.group} / ${cat.name}` : 'no guess';
         log(`  ${config.dryRun ? '[dry run] ' : ''}? ${label} -> review (${guess}, ${r?.confidence?.toFixed(2) ?? 'n/a'}): ${r?.reason ?? 'missing'}`);
         if (!config.dryRun) {
-          await updateFields(t.id, { notes: appendNote(t.notes, reviewNote(guess)) });
+          await updateFields(t.id, { notes: `${tagNotes(t.notes)} ${reviewNote(guess)}` });
           state.reviews[t.id] = { at: new Date().toISOString(), confidence: r?.confidence ?? null, reason: r?.reason ?? '' };
         }
       }
@@ -403,11 +409,12 @@ async function runOnce(config, { emails = true, trigger = 'schedule' } = {}) {
       // Files first, so bank data is in place before emails are checked against it.
       let ok = await step('File import', () => ingestFiles(config, lookups));
       // A dry run works on a copy of the waiting receipts so nothing is saved.
-      const run = { receipts: config.dryRun ? { ...state.receipts } : state.receipts, rows: new Map(), newTxns: [] };
+      const run = { receipts: config.dryRun ? { ...state.receipts } : state.receipts, rows: new Map(), newTxns: [], orders: new Map() };
       if (emails) ok = (await step('Email import', () => ingestEmails(config, lookups, state, run))) && ok;
       ok = (await step('Receipts', () => matchReceipts(config, lookups, run))) && ok;
       if (config.dryRun) logPreview(run);
       ok = (await step('Categorize', () => categorize(config, lookups, state))) && ok;
+      ok = (await step('Tidy notes', () => tidyNotes(config, lookups))) && ok;
       await backup(config, state);
       state.save();
       run.ok = ok;
@@ -424,6 +431,58 @@ async function runOnce(config, { emails = true, trigger = 'schedule' } = {}) {
 }
 
 // --- Web page API -----------------------------------------------------------
+
+// Earlier versions wrote "auto: email", "auto: Gemini"...; rewrite those notes
+// to the current style (your text, then #autopilot). Runs every time but only
+// touches notes that still have an old tag.
+async function tidyNotes(config, lookups) {
+  const txns = await recentTransactions(lookups.accounts, daysAgo(config.categorize.historyDays), isoDate(new Date()));
+  const old = txns.filter((t) => hasOldTags(t.notes));
+  if (old.length === 0) return;
+  log(`${config.dryRun ? '[dry run] ' : ''}Tidying notes on ${old.length} transaction(s): "auto: ..." tags become ${TAG}`);
+  if (config.dryRun) return;
+  for (const t of old) await updateFields(t.id, { notes: tagNotes(t.notes) });
+}
+
+// Transactions the app created or annotated recently, for the web page.
+async function listRecent(config) {
+  return withOpenBudget(config, async () => {
+    const lookups = await loadLookups();
+    const txns = await recentTransactions(lookups.accounts, daysAgo(30), isoDate(new Date()));
+    const items = txns
+      .filter((t) => ((t.notes ?? '').includes(TAG) || hasOldTags(t.notes)) && !isPendingReview(t.notes))
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 200)
+      .map((t) => ({
+        id: t.id,
+        date: t.date,
+        payee: lookups.payeeName.get(t.payee) ?? t.imported_payee ?? '(no payee)',
+        account: t.accountName,
+        amount: formatAmount(t.amount),
+        notes: editableNotes(t.notes),
+      }));
+    return { items, dryRun: config.dryRun };
+  });
+}
+
+// updates: [{ id, notes }]. Saves your text with #autopilot at the end.
+async function saveNotes(config, updates) {
+  if (config.dryRun) return { saved: 0, dryRun: true };
+  return withOpenBudget(config, async () => {
+    const lookups = await loadLookups();
+    const txns = await recentTransactions(lookups.accounts, daysAgo(60), isoDate(new Date()));
+    const byId = new Map(txns.map((t) => [t.id, t]));
+    let saved = 0;
+    for (const u of updates) {
+      const t = byId.get(u?.id);
+      if (!t || typeof u.notes !== 'string') continue;
+      await updateFields(t.id, { notes: tagNotes(u.notes.slice(0, 1000)) });
+      saved++;
+    }
+    log(`Web page: notes saved on ${saved} transaction(s)`);
+    return { saved };
+  });
+}
 
 async function listReviews(config) {
   return withOpenBudget(config, async () => {
@@ -529,6 +588,8 @@ if (config.runOnce) {
           return true;
         },
         review: () => listReviews(config),
+        recent: () => listRecent(config),
+        saveNotes: (updates) => saveNotes(config, updates),
         decide: (decisions) => applyDecisions(config, decisions),
       },
     });

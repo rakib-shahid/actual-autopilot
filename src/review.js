@@ -1,3 +1,5 @@
+import { tagNotes, TAG } from './receipts.js';
+
 // Transactions Gemini wasn't sure about carry "#review maybe <Group> / <Name>"
 // in their notes. These helpers read and clear that tag for the web page.
 
@@ -8,7 +10,7 @@ const PENDING = /\s*#review maybe (.*)$/;
 export const reviewNote = (guess) => `${REVIEW_TAG} maybe ${guess}`;
 
 // The notes without the review tag: what the web page lets you edit.
-export const editableNotes = (notes) => (notes ?? '').replace(PENDING, '').trim();
+export const editableNotes = (notes) => tagNotes((notes ?? '').replace(PENDING, '')).slice(0, -TAG.length).trim();
 
 export function isPendingReview(notes) {
   return PENDING.test(notes ?? '');
@@ -25,7 +27,6 @@ export function guessedCategory(notes, categories) {
 // review list. A skipped one keeps a #review-skipped tag so Gemini doesn't
 // categorize it again on the next run.
 export function resolvedNotes(notes, { skipped = false } = {}) {
-  const base = (notes ?? '').replace(PENDING, '').trim();
-  const tag = skipped ? SKIPPED_TAG : 'auto: reviewed';
-  return base ? `${base} ${tag}` : tag;
+  const tagged = tagNotes((notes ?? '').replace(PENDING, ''));
+  return skipped ? `${tagged} ${SKIPPED_TAG}` : tagged;
 }

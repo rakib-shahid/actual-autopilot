@@ -15,8 +15,8 @@ test('review tag round trip', () => {
   assert.equal(guessedCategory(notes, categories).id, 'c1');
   assert.equal(guessedCategory(`x ${reviewNote('no guess')}`, categories), null);
   assert.equal(guessedCategory(`x ${reviewNote('Gone / Deleted')}`, categories), null);
-  assert.equal(resolvedNotes(notes), 'auto: email auto: reviewed');
-  assert.equal(resolvedNotes(reviewNote('no guess')), 'auto: reviewed');
+  assert.equal(resolvedNotes(notes), '#autopilot');
+  assert.equal(resolvedNotes(reviewNote('no guess')), '#autopilot');
 });
 
 test('a skipped transaction leaves the list but stays out of auto-categorizing', () => {
@@ -71,7 +71,7 @@ test('web server requires the password when WEB_PASSWORD is set', async () => {
 test('review notes can be edited before saving', async () => {
   const { editableNotes } = await import('../src/review.js');
   const notes = `Wingstop · auto: email ${reviewNote('Wants / 📅 Subscriptions')}`;
-  assert.equal(editableNotes(notes), 'Wingstop · auto: email');
-  assert.equal(resolvedNotes('wings for game night'), 'wings for game night auto: reviewed');
+  assert.equal(editableNotes(notes), 'Wingstop');
+  assert.equal(resolvedNotes('wings for game night'), 'wings for game night #autopilot');
   assert.ok(!isPendingReview(resolvedNotes('x', { skipped: true })));
 });
