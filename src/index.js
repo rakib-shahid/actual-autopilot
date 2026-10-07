@@ -11,7 +11,7 @@ import { planImports, dateRange, DAY_MS } from './dedupe.js';
 import { detailsNote, withDetails, matchReceipt, RECEIPT_TTL_DAYS } from './receipts.js';
 import { listImportFiles, parseBankCsv, ofxAccountLast4, accountFromFileName, moveFile } from './files.js';
 import { writeBackup } from './backup.js';
-import { REVIEW_TAG, reviewNote, isPendingReview, guessedCategory, resolvedNotes } from './review.js';
+import { REVIEW_TAG, reviewNote, isPendingReview, guessedCategory, resolvedNotes, editableNotes } from './review.js';
 import { startWebServer } from './web.js';
 import { captureLogs, recentLogs } from './logbuffer.js';
 import {
@@ -432,7 +432,7 @@ async function listReviews(config) {
         payee: lookups.payeeName.get(t.payee) ?? t.imported_payee ?? '(no payee)',
         account: t.accountName,
         amount: formatAmount(t.amount),
-        notes: t.notes,
+        notes: editableNotes(t.notes),
         guess: guessedCategory(t.notes, lookups.categories)?.id ?? null,
         confidence: state.reviews[t.id]?.confidence ?? null,
         reason: state.reviews[t.id]?.reason ?? '',
@@ -441,7 +441,8 @@ async function listReviews(config) {
   });
 }
 
-// decisions: [{ id, category_id, skip }]. Notes are re-read so a stale page can't overwrite them.
+// decisions: [{ id, category_id, skip, notes }]. Without notes, the current notes
+// are re-read so a stale page can't overwrite them.
 async function applyDecisions(config, decisions) {
   if (config.dryRun) return { applied: 0, dryRun: true };
   return withOpenBudget(config, async () => {
@@ -454,10 +455,11 @@ async function applyDecisions(config, decisions) {
     for (const d of decisions) {
       const t = byId.get(d?.id);
       if (!t || !isPendingReview(t.notes)) continue;
+      const base = typeof d.notes === 'string' ? d.notes.slice(0, 1000) : t.notes;
       if (d.skip) {
-        await updateFields(t.id, { notes: resolvedNotes(t.notes, { skipped: true }) });
+        await updateFields(t.id, { notes: resolvedNotes(base, { skipped: true }) });
       } else if (validCategory.has(d.category_id)) {
-        await updateFields(t.id, { category: d.category_id, notes: resolvedNotes(t.notes) });
+        await updateFields(t.id, { category: d.category_id, notes: resolvedNotes(base) });
       } else continue;
       delete state.reviews[t.id];
       applied++;

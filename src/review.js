@@ -7,6 +7,9 @@ const PENDING = /\s*#review maybe (.*)$/;
 
 export const reviewNote = (guess) => `${REVIEW_TAG} maybe ${guess}`;
 
+// The notes without the review tag: what the web page lets you edit.
+export const editableNotes = (notes) => (notes ?? '').replace(PENDING, '').trim();
+
 export function isPendingReview(notes) {
   return PENDING.test(notes ?? '');
 }

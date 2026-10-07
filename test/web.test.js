@@ -67,3 +67,11 @@ test('web server requires the password when WEB_PASSWORD is set', async () => {
     assert.equal((await fetch(base + '/api/status', auth('s3cret'))).status, 200);
   });
 });
+
+test('review notes can be edited before saving', async () => {
+  const { editableNotes } = await import('../src/review.js');
+  const notes = `Wingstop · auto: email ${reviewNote('Wants / 📅 Subscriptions')}`;
+  assert.equal(editableNotes(notes), 'Wingstop · auto: email');
+  assert.equal(resolvedNotes('wings for game night'), 'wings for game night auto: reviewed');
+  assert.ok(!isPendingReview(resolvedNotes('x', { skipped: true })));
+});

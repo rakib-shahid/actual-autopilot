@@ -48,6 +48,7 @@
   .reason { grid-column: 1 / -1; font-size: 13px; color: var(--muted); }
   .actions { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .actions select { flex: 1; min-width: 200px; }
+  .actions input.notes { flex: 2; min-width: 200px; font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
   .empty { text-align: center; padding: 24px 0; color: var(--muted); }
   .banner { background: var(--chip); border-radius: 8px; padding: 8px 12px; font-size: 13px; margin-top: 12px; }
   .banner.warn { color: var(--warn); }
@@ -83,7 +84,7 @@
         <button id="refresh">Refresh</button>
       </div>
     </div>
-    <p class="small muted" style="margin:6px 0 0">Transactions Gemini wasn't confident about. Pick a category and save, or skip to leave it uncategorized (Gemini won't try it again).</p>
+    <p class="small muted" style="margin:6px 0 0">Transactions Gemini wasn't confident about. Pick a category, edit the notes if you like, and save, or skip to leave it uncategorized (Gemini won't try it again).</p>
     <div id="reviews"><div class="empty">Loading from Actual…</div></div>
   </section>
 
@@ -199,6 +200,7 @@ function render() {
       ${i.reason || conf ? `<div class="reason">${i.guess ? 'Gemini’s guess is preselected' : 'No guess'}${esc(conf)}${i.reason ? ': ' + esc(i.reason) : ''}</div>` : ''}
       <div class="actions">
         <select aria-label="Category for ${esc(i.payee)}">${options(i.guess)}</select>
+        <input class="notes" aria-label="Notes for ${esc(i.payee)}" placeholder="Notes" value="${esc(i.notes)}">
         <button class="primary save"${data.dryRun ? ' disabled' : ''}>Save</button>
         <button class="skip"${data.dryRun ? ' disabled' : ''}>Skip</button>
       </div>
@@ -223,7 +225,8 @@ $('reviews').addEventListener('click', async (e) => {
   if (btn.classList.contains('save') && !category_id) return toast('Pick a category first');
   row.querySelectorAll('button').forEach((b) => (b.disabled = true));
   try {
-    await decide([btn.classList.contains('skip') ? { id, skip: true } : { id, category_id }]);
+    const notes = row.querySelector('input.notes').value;
+    await decide([btn.classList.contains('skip') ? { id, skip: true, notes } : { id, category_id, notes }]);
   } catch (err) {
     toast(`Failed: ${err.message}`);
     row.querySelectorAll('button').forEach((b) => (b.disabled = false));
@@ -232,7 +235,7 @@ $('reviews').addEventListener('click', async (e) => {
 
 $('approveAll').addEventListener('click', async () => {
   const decisions = [...document.querySelectorAll('.item')]
-    .map((row) => ({ id: row.dataset.id, category_id: row.querySelector('select').value }))
+    .map((row) => ({ id: row.dataset.id, category_id: row.querySelector('select').value, notes: row.querySelector('input.notes').value }))
     .filter((d) => d.category_id);
   if (!decisions.length || !confirm(`Save the selected category for ${decisions.length} transaction(s)?`)) return;
   $('approveAll').disabled = true;
