@@ -42,3 +42,13 @@ test('a roughly matching charge must be within 3 days; an exact one within 7', (
   assert.equal(matchReceipt({ ...r, date: '2026-10-03' }, [charge]).id, 'a');
   assert.equal(matchReceipt({ ...r, amount: -5495 }, [charge]).id, 'a');
 });
+
+test('ordered and shipped emails for one order attach only once', async () => {
+  const { orderId } = await import('../src/receipts.js');
+  assert.equal(orderId('Supplements (113-4902473-6853010) · Amazon.com'), '113-4902473-6853010');
+  assert.equal(orderId('Bloc Large Silver Moonphase (#63179) · Laphont'), '63179');
+  assert.equal(orderId('Wingstop: wings'), null);
+  const charge = { id: 'a', date: '2026-10-06', amount: -2498, payeeName: 'Amazon', notes: 'Supplements (113-4902473-6853010) · auto: email' };
+  const shipped = { date: '2026-10-06', amount: -2498, payee: 'Amazon', details: 'Vitamins (113-4902473-6853010) · Amazon.com' };
+  assert.equal(matchReceipt(shipped, [charge]), null);
+});

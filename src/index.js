@@ -5,10 +5,10 @@ import cron from 'node-cron';
 import * as api from '@actual-app/api';
 import { loadConfig } from './config.js';
 import { fetchAlertEmails, mentionsMoney } from './gmail.js';
-import { extractTransaction, categorizeTransactions } from './llm.js';
+import { extractTransaction, categorizeTransactions, EXTRACT_VERSION } from './llm.js';
 import { loadState } from './state.js';
 import { planImports, dateRange, DAY_MS } from './dedupe.js';
-import { detailsNote, withDetails, matchReceipt, RECEIPT_TTL_DAYS } from './receipts.js';
+import { detailsNote, withDetails, matchReceipt, orderId, RECEIPT_TTL_DAYS } from './receipts.js';
 import { listImportFiles, parseBankCsv, ofxAccountLast4, accountFromFileName, moveFile } from './files.js';
 import { writeBackup } from './backup.js';
 import { REVIEW_TAG, reviewNote, isPendingReview, guessedCategory, resolvedNotes, editableNotes } from './review.js';
@@ -70,15 +70,15 @@ async function ingestEmails(config, lookups, state, run) {
 
   for (const email of emails) {
     const seen = state.emails[email.messageId];
-    // Gemini answers from before merchant_raw/details existed are asked again.
-    const current = seen?.extraction && 'details' in seen.extraction;
+    // Answers from an older prompt are asked again.
+    const current = seen?.extraction && seen.v === EXTRACT_VERSION;
     // A dry run looks at every email again (a preview); a live run only at new
     // ones and those waiting on an ACCOUNT_MAP entry.
-    const done = seen && !['unmapped', 'preview'].includes(seen.status) && !(seen.status === 'no_account' && !current);
+    const done = seen && !['unmapped', 'preview'].includes(seen.status) && !(['no_account', 'receipt'].includes(seen.status) && !current);
     if (done && !config.dryRun) continue;
 
     const extraction = (current && seen.extraction) || (await extractTransaction(email, lookups.payeeNames));
-    const record = { seenAt: seen?.seenAt ?? new Date().toISOString(), subject: email.subject, extraction };
+    const record = { seenAt: seen?.seenAt ?? new Date().toISOString(), subject: email.subject, extraction, v: EXTRACT_VERSION };
     // A dry run only caches the Gemini answer; the email still counts as new for the next live run.
     const remember = (status) => {
       state.emails[email.messageId] = { ...record, status: config.dryRun ? (seen?.status ?? 'preview') : status };
@@ -113,7 +113,7 @@ async function ingestEmails(config, lookups, state, run) {
           details,
         };
       }
-      log(`  ${details ? '~ receipt' : '- skip'} "${email.subject}": ${extraction.payee} $${extraction.amount.toFixed(2)}${details ? ` (${details}), waiting for the bank charge` : " doesn't say which account"}`);
+      log(`  ${details ? '~ receipt' : '- skip'} "${email.subject}": ${extraction.payee} $${extraction.amount.toFixed(2)}${details ? ` (${details}), kept to attach to its bank charge` : " doesn't say which account"}`);
       remember(details ? 'receipt' : 'no_account');
       continue;
     }
@@ -161,6 +161,14 @@ async function matchReceipts(config, lookups, run) {
   const claimed = new Set();
   const prefix = config.dryRun ? '[dry run] ' : '';
   for (const [id, r] of pending) {
+    // Another email about the same order (ordered vs shipped) already attached.
+    const order = orderId(r.details);
+    const noted = order && (txns.some((t) => (t.notes ?? '').includes(order)) || [...run.rows.values()].some((row) => row.notes?.includes(order)));
+    if (noted) {
+      log(`  - receipt ${r.payee} "${r.details}": order already noted on its charge`);
+      delete run.receipts[id];
+      continue;
+    }
     const t = matchReceipt(r, txns, claimed);
     if (t) {
       claimed.add(t.id);
@@ -171,8 +179,10 @@ async function matchReceipts(config, lookups, run) {
       };
       row.notes = withDetails(row.notes, r.details);
       run.rows.set(t.id, row);
+      const before = t.notes;
+      t.notes = withDetails(t.notes, r.details);
       if (!config.dryRun) {
-        if (!t.id.startsWith('email:')) await updateFields(t.id, { notes: withDetails(t.notes, r.details) });
+        if (!t.id.startsWith('email:')) await updateFields(t.id, { notes: withDetails(before, r.details) });
         delete run.receipts[id];
       }
     } else if (Date.now() - new Date(r.at).getTime() > RECEIPT_TTL_DAYS * DAY_MS) {

@@ -81,15 +81,27 @@ async function takeSlot() {
 async function parse(system, user, schema) {
   if (!(await takeSlot())) return null;
   const { $schema, ...jsonSchema } = z.toJSONSchema(schema);
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY ?? '' },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: system }] },
-      contents: [{ role: 'user', parts: [{ text: user }] }],
-      generationConfig: { maxOutputTokens: 16000, responseMimeType: 'application/json', responseJsonSchema: jsonSchema },
-    }),
-  });
+  const call = () =>
+    fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY ?? '' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: 'user', parts: [{ text: user }] }],
+        generationConfig: { maxOutputTokens: 16000, responseMimeType: 'application/json', responseJsonSchema: jsonSchema },
+      }),
+    });
+  // "Model overloaded" (503) and other server errors are usually brief: retry
+  // twice, then give up on this item only; it's tried again next run.
+  let res = await call();
+  for (let attempt = 1; res.status >= 500 && attempt <= 2; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, attempt * 10_000));
+    res = await call();
+  }
+  if (res.status >= 500) {
+    log(`Gemini: server error ${res.status} after 3 tries; skipping this one until the next run`);
+    return null;
+  }
   if (res.status === 429) {
     // Over a free-tier limit anyway: stop asking for a while instead of hammering it.
     usage.pausedUntil = Date.now() + 15 * 60_000;
@@ -116,6 +128,10 @@ async function parse(system, user, schema) {
   }
   return parsed.data;
 }
+
+// Bump when the extraction prompt or schema changes: saved answers from an
+// older version are asked again once.
+export const EXTRACT_VERSION = 3;
 
 export async function extractTransaction(email, payeeNames = []) {
   const user = [

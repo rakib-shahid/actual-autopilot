@@ -36,6 +36,10 @@ export function samePayee(a, b) {
   return x.includes(y) || y.includes(x) || (first(a).length >= 4 && first(a) === first(b));
 }
 
+// The order number Gemini puts in parentheses, e.g. "Supplements (113-4902473-6853010)".
+// Ordered and shipped emails for one order share it.
+export const orderId = (details) => (details ?? '').match(/\(#?(\w*\d[\w-]{3,})\)/)?.[1] ?? null;
+
 const dayNumber = (iso) => Math.round(Date.parse(`${iso}T00:00:00Z`) / DAY_MS);
 
 // receipt: { date, amount (cents, signed), payee, details }
@@ -45,6 +49,7 @@ export function matchReceipt(receipt, txns, claimed = new Set()) {
   const scored = txns
     .filter((t) => !claimed.has(t.id) && Math.sign(t.amount) === Math.sign(receipt.amount))
     .filter((t) => !(t.notes ?? '').includes(receipt.details))
+    .filter((t) => !orderId(receipt.details) || !(t.notes ?? '').includes(orderId(receipt.details)))
     .filter((t) => samePayee(t.payeeName, receipt.payee))
     .map((t) => ({ t, off: Math.abs(t.amount - receipt.amount), days: Math.abs(dayNumber(t.date) - day) }))
     .filter((c) => c.days <= (c.off === 0 ? MATCH_DAYS : CLOSE_DAYS) && c.off <= Math.abs(receipt.amount) * TOLERANCE)
