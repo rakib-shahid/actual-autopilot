@@ -17,6 +17,7 @@ export function loadState(dataDir) {
   return {
     emails: state.emails ?? {},
     reviews: state.reviews ?? {},
+    receipts: state.receipts ?? {},
     lastBackup: state.lastBackup ?? null,
     save() {
       // Keep the file small: forget emails older than 60 days, review notes older than 180.
@@ -27,7 +28,7 @@ export function loadState(dataDir) {
       for (const [id, entry] of Object.entries(this.reviews)) {
         if (now - new Date(entry.at).getTime() > 180 * DAY_MS) delete this.reviews[id];
       }
-      fs.writeFileSync(file, JSON.stringify({ emails: this.emails, reviews: this.reviews, lastBackup: this.lastBackup }, null, 2));
+      fs.writeFileSync(file, JSON.stringify({ emails: this.emails, reviews: this.reviews, receipts: this.receipts, lastBackup: this.lastBackup }, null, 2));
     },
   };
 }

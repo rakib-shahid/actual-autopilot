@@ -7,7 +7,8 @@ import { loadConfig } from './config.js';
 import { fetchAlertEmails, mentionsMoney } from './gmail.js';
 import { extractTransaction, categorizeTransactions } from './llm.js';
 import { loadState } from './state.js';
-import { planImports, dateRange } from './dedupe.js';
+import { planImports, dateRange, DAY_MS } from './dedupe.js';
+import { detailsNote, withDetails, matchReceipt, RECEIPT_TTL_DAYS } from './receipts.js';
 import { listImportFiles, parseBankCsv, ofxAccountLast4, accountFromFileName, moveFile } from './files.js';
 import { writeBackup } from './backup.js';
 import { REVIEW_TAG, reviewNote, isPendingReview, guessedCategory, resolvedNotes } from './review.js';
@@ -68,10 +69,12 @@ async function ingestEmails(config, lookups, state) {
 
   for (const email of emails) {
     const seen = state.emails[email.messageId];
-    if (seen && seen.status !== 'unmapped') continue;
+    // Receipts skipped before "details" existed get one more look.
+    const stale = seen?.status === 'no_account' && !('details' in (seen.extraction ?? {}));
+    if (seen && seen.status !== 'unmapped' && !stale) continue;
 
     // Reuse the earlier extraction for emails waiting on an ACCOUNT_MAP entry.
-    const extraction = seen?.extraction ?? (await extractTransaction(email, lookups.payeeNames));
+    const extraction = (!stale && seen?.extraction) || (await extractTransaction(email, lookups.payeeNames));
     const record = { seenAt: seen?.seenAt ?? new Date().toISOString(), subject: email.subject, extraction };
 
     if (!extraction) {
@@ -86,9 +89,21 @@ async function ingestEmails(config, lookups, state) {
 
     const account = findAccount(lookups.accounts, config.accountMap, extraction.account_last4);
     if (!account && !extraction.account_last4) {
-      // Receipts often don't name the card; the bank's own alert for the same charge will.
-      log(`  - skip "${email.subject}": ${extraction.payee} $${extraction.amount.toFixed(2)} doesn't say which account`);
-      state.emails[email.messageId] = { ...record, status: 'no_account' };
+      // Receipts often don't name the card; the bank's own alert for the same
+      // charge will. Keep what was bought until that charge shows up.
+      const details = detailsNote(extraction);
+      if (details && !config.dryRun) {
+        const cents = toCents(Math.abs(extraction.amount));
+        state.receipts[email.messageId] = {
+          at: new Date().toISOString(),
+          date: extraction.date,
+          amount: extraction.direction === 'inflow' ? cents : -cents,
+          payee: extraction.payee,
+          details,
+        };
+      }
+      log(`  ${details ? '~ receipt' : '- skip'} "${email.subject}": ${extraction.payee} $${extraction.amount.toFixed(2)}${details ? ` (${details}), waiting for the bank charge` : " doesn't say which account"}`);
+      state.emails[email.messageId] = { ...record, status: details ? 'receipt' : 'no_account' };
       continue;
     }
     if (!account) {
@@ -102,13 +117,43 @@ async function ingestEmails(config, lookups, state) {
     const line = `${txn.date} ${extraction.payee} ${extraction.direction === 'inflow' ? '+' : '-'}$${extraction.amount.toFixed(2)} -> ${account.name}`;
     const prefix = config.dryRun ? '[dry run] ' : '';
     if (plan.skip.length) {
-      log(`  ${prefix}= ${line} (already in Actual: ${describeMatch(lookups, plan.skip[0].match)})`);
+      // A second email about the same charge may say what was bought.
+      const match = plan.skip[0].match;
+      const notes = withDetails(match.notes, detailsNote(extraction));
+      if (notes !== match.notes && !config.dryRun) await updateFields(match.id, { notes });
+      log(`  ${prefix}= ${line} (already in Actual: ${describeMatch(lookups, match)})`);
     } else if (result.updated?.length) {
       log(`  ${prefix}= ${line} (Actual matched an existing entry)`);
     } else {
       log(`  ${prefix}+ ${line}`);
     }
     if (!config.dryRun) state.emails[email.messageId] = { ...record, status: 'imported' };
+  }
+}
+
+// Writes waiting receipts into the notes of the bank charge they belong to.
+async function matchReceipts(config, lookups, state) {
+  const pending = Object.entries(state.receipts);
+  if (pending.length === 0) return;
+  const txns = (await recentTransactions(lookups.accounts, daysAgo(RECEIPT_TTL_DAYS + 7), isoDate(new Date()))).map((t) => ({
+    ...t,
+    payeeName: lookups.payeeName.get(t.payee) ?? t.imported_payee ?? '',
+  }));
+  const claimed = new Set();
+  const prefix = config.dryRun ? '[dry run] ' : '';
+  for (const [id, r] of pending) {
+    const t = matchReceipt(r, txns, claimed);
+    if (t) {
+      claimed.add(t.id);
+      log(`  ${prefix}* ${r.payee} receipt "${r.details}" -> ${t.date} ${t.payeeName} $${formatAmount(t.amount)} (${t.accountName})`);
+      if (!config.dryRun) {
+        await updateFields(t.id, { notes: withDetails(t.notes, r.details) });
+        delete state.receipts[id];
+      }
+    } else if (Date.now() - new Date(r.at).getTime() > RECEIPT_TTL_DAYS * DAY_MS) {
+      log(`  - receipt ${r.payee} $${formatAmount(r.amount)} "${r.details}" never matched a charge; dropping it`);
+      delete state.receipts[id];
+    }
   }
 }
 
@@ -310,6 +355,7 @@ async function runOnce(config, { emails = true, trigger = 'schedule' } = {}) {
       // Files first, so bank data is in place before emails are checked against it.
       let ok = await step('File import', () => ingestFiles(config, lookups));
       if (emails) ok = (await step('Email import', () => ingestEmails(config, lookups, state))) && ok;
+      ok = (await step('Receipts', () => matchReceipts(config, lookups, state))) && ok;
       ok = (await step('Categorize', () => categorize(config, lookups, state))) && ok;
       await backup(config, state);
       state.save();

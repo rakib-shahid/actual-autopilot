@@ -7,6 +7,8 @@ export const ExtractionSchema = z.object({
   direction: z.enum(['outflow', 'inflow']).nullable(),
   payee: z.string().nullable(),
   account_last4: z.string().nullable(),
+  merchant_raw: z.string().nullable(),
+  details: z.string().nullable(),
   reason: z.string(),
 });
 
@@ -31,6 +33,8 @@ For a transaction:
 - direction: "outflow" for money leaving the account, "inflow" for money arriving.
 - payee: the merchant or counterparty as a short, clean name (e.g. "AT&T" rather than "ATT*BILL PAYMENT 800-331"). If it is the same business as one of the known payees, use that known payee's exact name, so emails from a payment portal and from the bank about one payment land on the same payee (e.g. a rent portal receipt and the bank's withdrawal notice both name the landlord).
 - account_last4: the last 4 digits of the account or card the email names, or null.
+- merchant_raw: the merchant exactly as the email writes it (e.g. "DOORDASH*CHIPOTLE", "AMZN Mktp US*2K41"), or null.
+- details: for receipts, order confirmations and food delivery, a short note of what was bought: the item names (shortened, up to about 8 words each, at most 5 items then "+N more"), or the restaurant and dishes for delivery apps (e.g. "Chipotle: burrito bowl, chips"). Include an order number if there is one, in parentheses at the end. Null for plain bank alerts that don't say what was bought.
 Always explain your call briefly in reason.`;
 
 const CATEGORIZE_SYSTEM = `You categorize personal budget transactions in Actual Budget for one person.

@@ -55,7 +55,7 @@ test('toImportTransaction signs amounts and leaves imported_id for the bank file
 
 test('schemas accept the shapes Gemini is asked for', () => {
   ExtractionSchema.parse({
-    is_transaction: false, date: null, amount: null, direction: null, payee: null, account_last4: null, reason: 'statement',
+    is_transaction: false, date: null, amount: null, direction: null, payee: null, account_last4: null, merchant_raw: null, details: null, reason: 'statement',
   });
   CategorizationSchema.parse({ results: [{ id: 't1', category_id: null, confidence: 0.2, reason: 'unknown' }] });
 });

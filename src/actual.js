@@ -1,4 +1,5 @@
 import * as api from '@actual-app/api';
+import { detailsNote, withDetails } from './receipts.js';
 import { DAY_MS } from './dedupe.js';
 
 let internal = null;
@@ -57,7 +58,7 @@ export function toImportTransaction(extraction) {
     amount: extraction.direction === 'inflow' ? cents : -cents,
     payee_name: extraction.payee,
     imported_payee: extraction.payee,
-    notes: 'auto: email',
+    notes: withDetails('auto: email', detailsNote(extraction)),
     cleared: false,
   };
 }
