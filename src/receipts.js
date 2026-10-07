@@ -15,7 +15,7 @@ export const RECEIPT_TTL_DAYS = 30;
 // Notes the app writes are your text, then this tag at the end.
 export const TAG = '#autopilot';
 // What earlier versions wrote instead.
-const OLD_TAGS = /\s*\bauto: (?:email|gemini|claude|reviewed|file)\b/gi;
+const OLD_TAGS = /\s*\bauto:(?:\s*(?:email|gemini|claude|reviewed|file)\b)?/gi;
 const REVIEW_SUFFIX = /\s*#review maybe .*$/;
 
 const norm = (s) => (s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');

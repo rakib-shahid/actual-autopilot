@@ -102,6 +102,8 @@ export async function loadLookups() {
     payeeName: new Map(payees.map((p) => [p.id, p.name])),
     // Real payees only; transfer payees are accounts, not merchants.
     payeeNames: payees.filter((p) => p.name && !p.transfer_acct).map((p) => p.name),
+    // Account id -> its transfer payee; a transaction with that payee is a transfer.
+    transferPayee: new Map(payees.filter((p) => p.transfer_acct).map((p) => [p.transfer_acct, p.id])),
   };
 }
 

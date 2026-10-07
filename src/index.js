@@ -8,7 +8,7 @@ import { fetchAlertEmails, mentionsMoney } from './gmail.js';
 import { extractTransaction, categorizeTransactions, EXTRACT_VERSION } from './llm.js';
 import { loadState } from './state.js';
 import { planImports, dateRange, DAY_MS } from './dedupe.js';
-import { detailsNote, withDetails, matchReceipt, orderId, sameOrder, tagNotes, hasOldTags, canonicalPayee, TAG, RECEIPT_TTL_DAYS } from './receipts.js';
+import { detailsNote, withDetails, matchReceipt, orderId, orderIds, sameOrder, tagNotes, hasOldTags, canonicalPayee, TAG, RECEIPT_TTL_DAYS } from './receipts.js';
 import { listImportFiles, parseBankCsv, ofxAccountLast4, accountFromFileName, moveFile } from './files.js';
 import { writeBackup } from './backup.js';
 import { REVIEW_TAG, reviewNote, isPendingReview, guessedCategory, resolvedNotes, editableNotes } from './review.js';
@@ -75,7 +75,7 @@ async function ingestEmails(config, lookups, state, run) {
     const done = seen && !['unmapped', 'preview'].includes(seen.status) && !(['no_account', 'receipt'].includes(seen.status) && !current);
     if (done && !config.dryRun) continue;
 
-    const answer = (current && seen.extraction) || (await extractTransaction(email, lookups.payeeNames));
+    const answer = (current && seen.extraction) || (await extractTransaction(email, lookups.payeeNames, lookups.accounts.map((a) => a.name)));
     // Stick to existing payees; keep the name the email used in the notes.
     const payee = canonicalPayee(answer?.payee, lookups.payeeNames);
     const extraction = answer && payee !== answer.payee
@@ -127,6 +127,13 @@ async function ingestEmails(config, lookups, state, run) {
     }
 
     const txn = toImportTransaction(extraction);
+    // A card payment or transfer to another of your accounts becomes an Actual
+    // transfer (both sides), like the ones you enter by hand.
+    const target = lookups.accounts.find((a) => a.id !== account.id && a.name.toLowerCase() === extraction.payee.toLowerCase());
+    if (target && lookups.transferPayee.has(target.id)) {
+      txn.payee = lookups.transferPayee.get(target.id);
+      delete txn.payee_name;
+    }
     const order = orderId(extraction.details);
     const { plan, result } = await importIntoAccount(config, account, [txn], { order, run });
     const line = `${txn.date} ${extraction.payee} ${extraction.direction === 'inflow' ? '+' : '-'}$${extraction.amount.toFixed(2)} -> ${account.name}`;
@@ -135,7 +142,9 @@ async function ingestEmails(config, lookups, state, run) {
     if (plan.skip.length) {
       // A second email about the same charge may say what was bought.
       const match = plan.skip[0].match;
-      const added = withDetails(match.notes, detailsNote(extraction));
+      // Skip details for an order that's already noted (a reworded second email).
+      const known = order && orderIds(match.notes).includes(order);
+      const added = known ? match.notes : withDetails(match.notes, detailsNote(extraction));
       const notes = added !== match.notes ? tagNotes(added) : match.notes;
       if (notes !== match.notes && !config.dryRun) await updateFields(match.id, { notes });
       if (order) run.orders.set(match.id, new Set([...(run.orders.get(match.id) ?? []), order]));

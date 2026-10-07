@@ -73,3 +73,8 @@ test('notes: your text, then #autopilot; old auto: tags removed', async () => {
   assert.equal(canonicalPayee('doordash', payees), 'DoorDash');
   assert.equal(canonicalPayee('Racetrac', payees), 'Racetrac');
 });
+
+test('a bare "auto:" left by hand is tidied too', async () => {
+  const { tagNotes } = await import('../src/receipts.js');
+  assert.equal(tagNotes('auto: email auto: (hospital payment)'), '(hospital payment) #autopilot');
+});

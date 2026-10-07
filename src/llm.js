@@ -31,10 +31,10 @@ For a transaction:
 - date: the date the money moved, as YYYY-MM-DD. Use the email's sent date if the body gives none.
 - amount: a positive number in dollars, e.g. 42.17.
 - direction: "outflow" for money leaving the account, "inflow" for money arriving.
-- payee: the business that was paid (the store or platform that charged the card, not the brand of a gift card or product bought) as a short, clean name (e.g. "AT&T" rather than "ATT*BILL PAYMENT 800-331"). Use one of the known payees, spelled exactly, whenever one is the same business or the bucket this person files it under: e.g. Valve for a Steam purchase goes to an existing "Steam", a Racetrac or Shell station to an existing "Gas Stations", a rent portal receipt to the landlord's payee. Only when no known payee fits, give a new short clean name. Put the specific merchant in merchant_raw when it differs from the payee.
+- payee: the business that was paid (the store or platform that charged the card, not the brand of a gift card or product bought) as a short, clean name (e.g. "AT&T" rather than "ATT*BILL PAYMENT 800-331"). Use one of the known payees, spelled exactly, whenever one is the same business or the bucket this person files it under: e.g. Valve for a Steam purchase goes to an existing "Steam", a Racetrac or Shell station to an existing "Gas Stations", a rent portal receipt to the landlord's payee. Only when no known payee fits, give a new short clean name. Put the specific merchant in merchant_raw when it differs from the payee. A payment to one of their own credit cards or accounts, or a transfer between their accounts, uses that account's exact name from your_accounts as the payee (e.g. a checking withdrawal to "CHASE CREDIT CRD" has payee "Chase Credit").
 - account_last4: the last 4 digits of the account or card the email names, or null.
 - merchant_raw: the merchant exactly as the email writes it (e.g. "DOORDASH*CHIPOTLE", "AMZN Mktp US*2K41"), or null.
-- details: for receipts, order confirmations and food delivery, a short note of what was bought: the item names (shortened, up to about 8 words each, at most 5 items then "+N more"), or the restaurant and dishes for delivery apps (e.g. "Chipotle: burrito bowl, chips"). Include an order number if there is one, in parentheses at the end. Null for plain bank alerts that don't say what was bought.
+- details: for receipts, order confirmations and food delivery, a short note of what was bought: the item names (shortened, up to about 8 words each, at most 5 items then "+N more"), or the restaurant and dishes for delivery and pickup apps (e.g. "Chipotle: burrito bowl, chips"); the subject often names the restaurant ("Order Confirmation for Sam from Wingstop"), so always include it. Include an order number if there is one, in parentheses at the end. Null for plain bank alerts that don't say what was bought.
 Always explain your call briefly in reason.`;
 
 const CATEGORIZE_SYSTEM = `You categorize personal budget transactions in Actual Budget for one person.
@@ -131,10 +131,11 @@ async function parse(system, user, schema) {
 
 // Bump when the extraction prompt or schema changes: saved answers from an
 // older version are asked again once.
-export const EXTRACT_VERSION = 4;
+export const EXTRACT_VERSION = 5;
 
-export async function extractTransaction(email, payeeNames = []) {
+export async function extractTransaction(email, payeeNames = [], accountNames = []) {
   const user = [
+    `<your_accounts>${accountNames.join(' | ')}</your_accounts>`,
     // ponytail: whole payee list in every request, capped; send only likely matches if it grows past this.
     `<known_payees>${payeeNames.slice(0, 800).join(' | ')}</known_payees>`,
     '',
