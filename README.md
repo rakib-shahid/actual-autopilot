@@ -47,7 +47,7 @@ There is no login unless you set `WEB_PASSWORD` (any username). Don't expose the
 
 ## Exports (for you, scripts, or an AI assistant)
 
-Every transaction in a date range as CSV (date, account, payee, transfer, category group, category, amount, notes, cleared, off budget, id), plus a summary: income, spending, net, spending by category, top payees, uncategorized and waiting-for-review counts, and every account's balance. Transfers between your accounts are listed but left out of income and spending.
+Every transaction in a date range as CSV (date, account, payee, transfer, category group, category, amount, notes, cleared, off budget, id), plus a summary: income, spending, saved (categories in a group named like "Savings" or "Investments"), net, spending by category, top payees, uncategorized and waiting-for-review counts, and every account's balance. Transfers between budget accounts are listed but left out of income and spending; a transfer to an off-budget account counts under its category.
 
 Periods: `mtd` (default), `last-month`, `ytd`, `last-year`, `last-30` (any number of days), a month like `2026-09`, or `from`/`to` dates.
 

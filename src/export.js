@@ -77,24 +77,34 @@ export function toCsv(rows) {
 const cents = (s) => Math.round(Number(s) * 100);
 const dollars = (c) => (c / 100).toFixed(2);
 
-// Income and spending count on-budget, non-transfer rows only, the way Actual's
-// budget does. balances: [{ account, balance (cents), offbudget }].
+// Income and spending count on-budget rows the way Actual's budget does: a
+// transfer between two budget accounts has no category and is left out; one to
+// an off-budget account (savings, investments) has a category and counts.
+// Categories in a group named like "Savings" or "Investments" are reported as
+// saved rather than spent. balances: [{ account, balance (cents), offbudget }].
+const SAVINGS_GROUP = /saving|invest/i;
+
 export function summarize(rows, { range, balances = [], pendingReview = 0 }) {
   let income = 0;
   let spending = 0;
+  let saved = 0;
   const byCategory = new Map();
   const byPayee = new Map();
   let uncategorized = 0;
   for (const r of rows) {
-    if (r.transfer || r.offbudget === 'yes') continue;
+    if ((r.transfer && !r.category) || r.offbudget === 'yes') continue;
     const c = cents(r.amount);
     const incomeRow = c > 0 && (!r.category || /income/i.test(r.category_group));
     if (incomeRow) income += c;
     else {
       const key = r.category ? `${r.category_group} / ${r.category}` : '(uncategorized)';
       byCategory.set(key, (byCategory.get(key) ?? 0) - c);
-      if (c < 0) byPayee.set(r.payee || '(no payee)', (byPayee.get(r.payee || '(no payee)') ?? 0) - c);
-      spending -= c;
+      const who = r.payee || (r.transfer && `Transfer to ${r.transfer}`) || '(no payee)';
+      if (SAVINGS_GROUP.test(r.category_group)) saved -= c;
+      else {
+        if (c < 0) byPayee.set(who, (byPayee.get(who) ?? 0) - c);
+        spending -= c;
+      }
     }
     if (!r.category) uncategorized++;
   }
@@ -106,7 +116,9 @@ export function summarize(rows, { range, balances = [], pendingReview = 0 }) {
     transactions: rows.length,
     income: dollars(income),
     spending: dollars(spending),
-    net: dollars(income - spending),
+    saved: dollars(saved),
+    // What's left after spending and saving.
+    net: dollars(income - spending - saved),
     by_category: sorted(byCategory),
     top_payees: sorted(byPayee).slice(0, 15),
     uncategorized,
@@ -118,7 +130,7 @@ export function summarize(rows, { range, balances = [], pendingReview = 0 }) {
 export function summaryText(s) {
   const lines = [
     `Period: ${s.from} to ${s.to} (${s.period}), ${s.transactions} transaction(s)`,
-    `Income ${s.income} | Spending ${s.spending} | Net ${s.net}`,
+    `Income ${s.income} | Spending ${s.spending} | Saved ${s.saved} | Net ${s.net}`,
     `Uncategorized: ${s.uncategorized} | Waiting for review: ${s.pending_review}`,
     '',
     'Spending by category:',

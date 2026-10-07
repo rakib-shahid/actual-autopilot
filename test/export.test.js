@@ -54,6 +54,7 @@ test('summary leaves transfers out of income and spending', () => {
   });
   assert.equal(s.income, '2500.00');
   assert.equal(s.spending, '25.45');
+  assert.equal(s.saved, '0.00');
   assert.equal(s.net, '2474.55');
   assert.deepEqual(s.by_category, [{ name: 'Wants / Eating Out', amount: '15.45' }, { name: '(uncategorized)', amount: '10.00' }]);
   assert.deepEqual(s.top_payees, [{ name: 'DoorDash', amount: '25.45' }]);
@@ -71,4 +72,18 @@ test('email request subjects', () => {
   assert.equal(parseRequest('autopilot: dance').command, 'help');
   assert.equal(parseRequest('Re: your order'), null);
   assert.equal(parseRequest('[autopilot] Export 2026-10-01 to 2026-10-07'), null);
+});
+
+test('money moved to savings counts as saved, not spent', () => {
+  const lk = { ...lookups, categories: [...lookups.categories, { id: 'buf', name: 'Buffer', group: 'Investments and Savings' }], allAccounts: [...lookups.allAccounts, { id: 'sav', name: 'Savings' }], transferAccount: new Map([['tcc', 'cc'], ['tsav', 'sav']]) };
+  const rows = buildRows([
+    { id: 'p', date: '2026-10-01', accountName: 'Checking', payee: 'p2', category: 'pay', amount: 300000 },
+    { id: 's', date: '2026-10-06', accountName: 'Checking', payee: 'tsav', category: 'buf', amount: -200000 },
+    { id: 'f', date: '2026-10-06', accountName: 'Credit Card', payee: 'p1', category: 'food', amount: -1000 },
+  ], lk);
+  const s = summarize(rows, { range: { from: '2026-10-01', to: '2026-10-07', label: 'x' } });
+  assert.equal(s.spending, '10.00');
+  assert.equal(s.saved, '2000.00');
+  assert.equal(s.net, '990.00');
+  assert.deepEqual(s.top_payees, [{ name: 'DoorDash', amount: '10.00' }]);
 });
