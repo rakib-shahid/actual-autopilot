@@ -61,7 +61,8 @@ export function samePayee(a, b) {
 // Order numbers Gemini puts in parentheses, e.g. "Supplements (113-4902473-6853010)".
 // Ordered and shipped emails for one order share it; two separate purchases
 // of the same amount (two $5 credit buys) don't.
-export const orderIds = (text) => [...(text ?? '').matchAll(/\(#?(\w*\d[\w-]{3,})\)/g)].map((m) => m[1]);
+// "(113-123...)", "(#63179)", or Gemini's "(Order # 113-123...)".
+export const orderIds = (text) => [...(text ?? '').matchAll(/\((?:order\s*(?:no\.?|number)?\s*)?#?\s*(\w*\d[\w-]{3,})\)/gi)].map((m) => m[1]);
 export const orderId = (details) => orderIds(details)[0] ?? null;
 
 // False when the transaction is already noted with a different order.

@@ -86,3 +86,11 @@ test('AWS $1 card checks are skipped, other small charges are not', async () => 
   assert.ok(!isVerificationHold({ amount: 12.4, payee: 'Amazon Web Services', merchant_raw: null }));
   assert.ok(!isVerificationHold({ amount: 0.98, payee: 'Walmart', merchant_raw: null }));
 });
+
+test('order numbers are found however Gemini words them', async () => {
+  const { orderIds, matchReceipt } = await import('../src/receipts.js');
+  assert.deepEqual(orderIds('Supplements (Order # 114-3958455-3552213) · Electronics (113-2475469-7829046) · Bloc (#63179)'), ['114-3958455-3552213', '113-2475469-7829046', '63179']);
+  // A charge already noted with one order doesn't take a second order's receipt.
+  const charge = { id: 'a', date: '2026-10-05', amount: -5295, payeeName: 'Amazon', notes: 'Supplements (Order # 114-3958455-3552213) #autopilot' };
+  assert.equal(matchReceipt({ date: '2026-10-05', amount: -5295, payee: 'Amazon', details: 'Electronics (113-2475469-7829046)' }, [charge]), null);
+});
