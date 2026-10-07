@@ -8,7 +8,7 @@ import { fetchAlertEmails, mentionsMoney } from './gmail.js';
 import { extractTransaction, categorizeTransactions, EXTRACT_VERSION } from './llm.js';
 import { loadState } from './state.js';
 import { planImports, dateRange, DAY_MS } from './dedupe.js';
-import { detailsNote, withDetails, matchReceipt, orderId, orderIds, sameOrder, tagNotes, hasOldTags, canonicalPayee, TAG, RECEIPT_TTL_DAYS } from './receipts.js';
+import { detailsNote, withDetails, matchReceipt, orderId, orderIds, sameOrder, isVerificationHold, tagNotes, hasOldTags, canonicalPayee, TAG, RECEIPT_TTL_DAYS } from './receipts.js';
 import { listImportFiles, parseBankCsv, ofxAccountLast4, accountFromFileName, moveFile } from './files.js';
 import { writeBackup } from './backup.js';
 import { REVIEW_TAG, reviewNote, isPendingReview, guessedCategory, resolvedNotes, editableNotes } from './review.js';
@@ -93,6 +93,11 @@ async function ingestEmails(config, lookups, state, run) {
     }
     if (!extraction.is_transaction || extraction.amount == null || !extraction.date || !extraction.payee) {
       log(`  - skip "${email.subject}": ${extraction.reason}`);
+      remember('not_transaction');
+      continue;
+    }
+    if (isVerificationHold(extraction)) {
+      log(`  - skip "${email.subject}": $${extraction.amount.toFixed(2)} ${extraction.payee} card-verification charge`);
       remember('not_transaction');
       continue;
     }

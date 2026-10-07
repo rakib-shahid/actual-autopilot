@@ -78,3 +78,11 @@ test('a bare "auto:" left by hand is tidied too', async () => {
   const { tagNotes } = await import('../src/receipts.js');
   assert.equal(tagNotes('auto: email auto: (hospital payment)'), '(hospital payment) #autopilot');
 });
+
+test('AWS $1 card checks are skipped, other small charges are not', async () => {
+  const { isVerificationHold } = await import('../src/receipts.js');
+  assert.ok(isVerificationHold({ amount: 1, payee: 'Amazon Web Services', merchant_raw: null }));
+  assert.ok(isVerificationHold({ amount: 1, payee: 'Amazon', merchant_raw: 'AWS EMEA' }));
+  assert.ok(!isVerificationHold({ amount: 12.4, payee: 'Amazon Web Services', merchant_raw: null }));
+  assert.ok(!isVerificationHold({ amount: 0.98, payee: 'Walmart', merchant_raw: null }));
+});

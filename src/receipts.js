@@ -88,6 +88,11 @@ export function matchReceipt(receipt, txns, claimed = new Set()) {
   return scored[0]?.t ?? null;
 }
 
+// AWS charges $1.00 to check a new card and refunds it; not a real expense.
+// ponytail: AWS only; add other services here if their checks show up too.
+export const isVerificationHold = ({ amount, payee, merchant_raw }) =>
+  Math.abs(amount) <= 1 && /amazon web services|\baws\b/i.test(`${payee} ${merchant_raw ?? ''}`);
+
 // The existing payee to use for a name from an email: an exact (case-insensitive)
 // match, else one whose cleaned name contains the other ("Amazon" for
 // "Amazon.com"), else the name as is. Gemini already picks from the list;
