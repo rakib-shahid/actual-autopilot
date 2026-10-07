@@ -77,7 +77,7 @@ The container runs as uid 1000, so the import, done, and backup folders on the h
 | `GMAIL_USER` / `GMAIL_APP_PASSWORD` | | email ingest is skipped if unset |
 | `ALERT_SENDERS` | all mail | comma-separated senders to limit email reading to; empty or `*` = all |
 | `LOOKBACK_DAYS` | `3` | how far back each run looks in Gmail |
-| `ACCOUNT_MAP` | `{}` | `{"1234": "Checking"}` |
+| `ACCOUNT_MAP` | `{}` | `{"1234": "Checking"}`; a non-digit key names a merchant whose emails go to that account when they don't show one of your cards, e.g. `"DoorDash": "Credit Card"` for Google Pay orders |
 | `GEMINI_API_KEY` | required | from https://aistudio.google.com/apikey, on a project without billing |
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` | any model with a free tier, e.g. `gemini-3.5-flash` for more judgment (lower free limits) |
 | `GEMINI_RPM` | `10` | max requests per minute; keep below your free-tier limit |
@@ -92,7 +92,7 @@ The container runs as uid 1000, so the import, done, and backup folders on the h
 | `BACKUP_KEEP` | `30` | number of backups to keep |
 | `WEB_PORT` | `8080` | web page port; `0` = off |
 | `WEB_PASSWORD` | | require this password for the web page |
-| `DRY_RUN` | `true` | files stay in the drop folder and nothing is written to Actual |
+| `DRY_RUN` | `true` | nothing is written to Actual and files stay in the drop folder; every email in `LOOKBACK_DAYS` is re-checked (cached Gemini answers are reused) and the run ends with a "Dry-run preview" listing each row it would create (`[new]`) or the existing row it matched and the notes it would write (`[exists]`) |
 | `SCHEDULE` | `0 */2 * * *` | cron |
 | `RUN_ONCE` | `false` | run one pass and exit |
 | `TZ` | `America/New_York` | |

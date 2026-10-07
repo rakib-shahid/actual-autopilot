@@ -71,3 +71,13 @@ test('Amazon totals written as USD count as amounts', async () => {
   const { mentionsMoney } = await import('../src/gmail.js');
   assert.ok(mentionsMoney({ subject: 'Ordered 1 item: Supplements', text: 'Grand Total:\n24.98 USD' }));
 });
+
+test('ACCOUNT_MAP merchant keys route emails without a known card', async () => {
+  const { merchantAccount } = await import('../src/actual.js');
+  const accounts = [{ id: 's', name: 'C1 Savor Credit' }, { id: 'c', name: 'Checking' }];
+  const map = { 1234: 'Checking', DoorDash: 'C1 Savor Credit' };
+  assert.equal(merchantAccount(accounts, map, { payee: 'Wingstop', merchant_raw: 'DOORDASH*WINGSTOP' }).id, 's');
+  assert.equal(merchantAccount(accounts, map, { payee: 'DoorDash', merchant_raw: null }).id, 's');
+  assert.equal(merchantAccount(accounts, map, { payee: 'Wingstop', merchant_raw: null, from: 'DoorDash <no-reply@doordash.com>' }).id, 's');
+  assert.equal(merchantAccount(accounts, map, { payee: 'Amazon', merchant_raw: null }), null);
+});

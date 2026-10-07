@@ -19,6 +19,7 @@ import {
   closeBudget,
   loadLookups,
   findAccount,
+  merchantAccount,
   toImportTransaction,
   accountTransactions,
   parseStatementFile,
@@ -56,7 +57,7 @@ async function importIntoAccount(config, account, txns) {
 const describeMatch = (lookups, m) =>
   `${m.date} ${lookups.payeeName.get(m.payee) ?? m.imported_payee ?? '(no payee)'}`;
 
-async function ingestEmails(config, lookups, state) {
+async function ingestEmails(config, lookups, state, run) {
   if (!config.gmail.enabled) return;
   if (!config.gmail.user || !config.gmail.appPassword) {
     log('Email ingest skipped: GMAIL_USER / GMAIL_APP_PASSWORD not set');
@@ -69,13 +70,19 @@ async function ingestEmails(config, lookups, state) {
 
   for (const email of emails) {
     const seen = state.emails[email.messageId];
-    // Receipts skipped before "details" existed get one more look.
-    const stale = seen?.status === 'no_account' && !('details' in (seen.extraction ?? {}));
-    if (seen && seen.status !== 'unmapped' && !stale) continue;
+    // Gemini answers from before merchant_raw/details existed are asked again.
+    const current = seen?.extraction && 'details' in seen.extraction;
+    // A dry run looks at every email again (a preview); a live run only at new
+    // ones and those waiting on an ACCOUNT_MAP entry.
+    const done = seen && !['unmapped', 'preview'].includes(seen.status) && !(seen.status === 'no_account' && !current);
+    if (done && !config.dryRun) continue;
 
-    // Reuse the earlier extraction for emails waiting on an ACCOUNT_MAP entry.
-    const extraction = (!stale && seen?.extraction) || (await extractTransaction(email, lookups.payeeNames));
+    const extraction = (current && seen.extraction) || (await extractTransaction(email, lookups.payeeNames));
     const record = { seenAt: seen?.seenAt ?? new Date().toISOString(), subject: email.subject, extraction };
+    // A dry run only caches the Gemini answer; the email still counts as new for the next live run.
+    const remember = (status) => {
+      state.emails[email.messageId] = { ...record, status: config.dryRun ? (seen?.status ?? 'preview') : status };
+    };
 
     if (!extraction) {
       log(`  ? "${email.subject}": Gemini returned nothing, will retry next run`);
@@ -83,20 +90,22 @@ async function ingestEmails(config, lookups, state) {
     }
     if (!extraction.is_transaction || extraction.amount == null || !extraction.date || !extraction.payee) {
       log(`  - skip "${email.subject}": ${extraction.reason}`);
-      state.emails[email.messageId] = { ...record, status: 'not_transaction' };
+      remember('not_transaction');
       continue;
     }
 
-    const account = findAccount(lookups.accounts, config.accountMap, extraction.account_last4);
+    const account =
+      findAccount(lookups.accounts, config.accountMap, extraction.account_last4) ??
+      merchantAccount(lookups.accounts, config.accountMap, { ...extraction, from: email.from });
     // Receipts also land here when the card they show isn't one of yours
     // (DoorDash prints a placeholder "MasterCard 0000").
     if (!account && (!extraction.account_last4 || extraction.details)) {
       // Receipts often don't name the card; the bank's own alert for the same
       // charge will. Keep what was bought until that charge shows up.
       const details = detailsNote(extraction);
-      if (details && !config.dryRun) {
+      if (details) {
         const cents = toCents(Math.abs(extraction.amount));
-        state.receipts[email.messageId] = {
+        run.receipts[email.messageId] = {
           at: new Date().toISOString(),
           date: extraction.date,
           amount: extraction.direction === 'inflow' ? cents : -cents,
@@ -105,12 +114,12 @@ async function ingestEmails(config, lookups, state) {
         };
       }
       log(`  ${details ? '~ receipt' : '- skip'} "${email.subject}": ${extraction.payee} $${extraction.amount.toFixed(2)}${details ? ` (${details}), waiting for the bank charge` : " doesn't say which account"}`);
-      state.emails[email.messageId] = { ...record, status: details ? 'receipt' : 'no_account' };
+      remember(details ? 'receipt' : 'no_account');
       continue;
     }
     if (!account) {
       log(`  ! "${email.subject}": no ACCOUNT_MAP entry for card/account ending ${extraction.account_last4}`);
-      state.emails[email.messageId] = { ...record, status: 'unmapped' };
+      remember('unmapped');
       continue;
     }
 
@@ -118,29 +127,37 @@ async function ingestEmails(config, lookups, state) {
     const { plan, result } = await importIntoAccount(config, account, [txn]);
     const line = `${txn.date} ${extraction.payee} ${extraction.direction === 'inflow' ? '+' : '-'}$${extraction.amount.toFixed(2)} -> ${account.name}`;
     const prefix = config.dryRun ? '[dry run] ' : '';
+    const row = { date: txn.date, account: account.name, payee: extraction.payee, amount: txn.amount, notes: txn.notes, existing: null };
     if (plan.skip.length) {
       // A second email about the same charge may say what was bought.
       const match = plan.skip[0].match;
       const notes = withDetails(match.notes, detailsNote(extraction));
       if (notes !== match.notes && !config.dryRun) await updateFields(match.id, { notes });
       log(`  ${prefix}= ${line} (already in Actual: ${describeMatch(lookups, match)})`);
+      row.existing = { date: match.date, payee: lookups.payeeName.get(match.payee) ?? match.imported_payee ?? '', notes: match.notes ?? '' };
+      row.notes = notes;
+      run.rows.set(match.id, row);
     } else if (result.updated?.length) {
       log(`  ${prefix}= ${line} (Actual matched an existing entry)`);
+      row.existing = { date: '', payee: '(matched by Actual)', notes: '' };
+      run.rows.set(`email:${email.messageId}`, row);
     } else {
       log(`  ${prefix}+ ${line}`);
+      // Lets the preview attach receipts to rows that don't exist yet.
+      run.rows.set(`email:${email.messageId}`, row);
+      if (config.dryRun) run.newTxns.push({ id: `email:${email.messageId}`, date: txn.date, amount: txn.amount, notes: txn.notes, payeeName: extraction.payee, accountName: account.name });
     }
-    if (!config.dryRun) state.emails[email.messageId] = { ...record, status: 'imported' };
+    remember('imported');
   }
 }
 
 // Writes waiting receipts into the notes of the bank charge they belong to.
-async function matchReceipts(config, lookups, state) {
-  const pending = Object.entries(state.receipts);
+async function matchReceipts(config, lookups, run) {
+  const pending = Object.entries(run.receipts);
   if (pending.length === 0) return;
-  const txns = (await recentTransactions(lookups.accounts, daysAgo(RECEIPT_TTL_DAYS + 7), isoDate(new Date()))).map((t) => ({
-    ...t,
-    payeeName: lookups.payeeName.get(t.payee) ?? t.imported_payee ?? '',
-  }));
+  const txns = (await recentTransactions(lookups.accounts, daysAgo(RECEIPT_TTL_DAYS + 7), isoDate(new Date())))
+    .map((t) => ({ ...t, payeeName: lookups.payeeName.get(t.payee) ?? t.imported_payee ?? '' }))
+    .concat(run.newTxns);
   const claimed = new Set();
   const prefix = config.dryRun ? '[dry run] ' : '';
   for (const [id, r] of pending) {
@@ -148,14 +165,33 @@ async function matchReceipts(config, lookups, state) {
     if (t) {
       claimed.add(t.id);
       log(`  ${prefix}* ${r.payee} receipt "${r.details}" -> ${t.date} ${t.payeeName} $${formatAmount(t.amount)} (${t.accountName})`);
+      const row = run.rows.get(t.id) ?? {
+        date: t.date, account: t.accountName, payee: t.payeeName, amount: t.amount, notes: t.notes ?? '',
+        existing: { date: t.date, payee: t.payeeName, notes: t.notes ?? '' },
+      };
+      row.notes = withDetails(row.notes, r.details);
+      run.rows.set(t.id, row);
       if (!config.dryRun) {
-        await updateFields(t.id, { notes: withDetails(t.notes, r.details) });
-        delete state.receipts[id];
+        if (!t.id.startsWith('email:')) await updateFields(t.id, { notes: withDetails(t.notes, r.details) });
+        delete run.receipts[id];
       }
     } else if (Date.now() - new Date(r.at).getTime() > RECEIPT_TTL_DAYS * DAY_MS) {
       log(`  - receipt ${r.payee} $${formatAmount(r.amount)} "${r.details}" never matched a charge; dropping it`);
-      delete state.receipts[id];
+      delete run.receipts[id];
     }
+  }
+}
+
+// Dry run: one line per transaction row the app would create, or the existing
+// row it would update, with the final notes.
+function logPreview(run) {
+  const rows = [...run.rows.values()].sort((a, b) => a.date.localeCompare(b.date));
+  log(`Dry-run preview: ${rows.length} row(s) (nothing was written)`);
+  for (const r of rows) {
+    const base = `${r.date} | ${r.account} | ${r.payee} | $${formatAmount(r.amount)}`;
+    if (!r.existing) log(`  [new]    ${base} | notes "${r.notes}"`);
+    else if (r.notes === r.existing.notes) log(`  [exists] ${base} | matches ${r.existing.date} ${r.existing.payee} "${r.existing.notes}", no change`);
+    else log(`  [exists] ${base} | matches ${r.existing.date} ${r.existing.payee} "${r.existing.notes}" -> notes "${r.notes}"`);
   }
 }
 
@@ -356,8 +392,11 @@ async function runOnce(config, { emails = true, trigger = 'schedule' } = {}) {
       const lookups = await loadLookups();
       // Files first, so bank data is in place before emails are checked against it.
       let ok = await step('File import', () => ingestFiles(config, lookups));
-      if (emails) ok = (await step('Email import', () => ingestEmails(config, lookups, state))) && ok;
-      ok = (await step('Receipts', () => matchReceipts(config, lookups, state))) && ok;
+      // A dry run works on a copy of the waiting receipts so nothing is saved.
+      const run = { receipts: config.dryRun ? { ...state.receipts } : state.receipts, rows: new Map(), newTxns: [] };
+      if (emails) ok = (await step('Email import', () => ingestEmails(config, lookups, state, run))) && ok;
+      ok = (await step('Receipts', () => matchReceipts(config, lookups, run))) && ok;
+      if (config.dryRun) logPreview(run);
       ok = (await step('Categorize', () => categorize(config, lookups, state))) && ok;
       await backup(config, state);
       state.save();

@@ -48,6 +48,15 @@ export function findAccount(accounts, accountMap, last4) {
   return accounts.find((a) => a.name.toLowerCase() === name.toLowerCase()) ?? null;
 }
 
+// ACCOUNT_MAP keys that aren't card digits name a merchant, e.g. {"DoorDash": "Savor"}:
+// its emails go to that account when they don't name one of your cards.
+export function merchantAccount(accounts, accountMap, { payee, merchant_raw, from }) {
+  const norm = (s) => (s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const text = [payee, merchant_raw, from].map(norm).join(' ');
+  const key = Object.keys(accountMap).find((k) => !/^\d+$/.test(k) && norm(k) && text.includes(norm(k)));
+  return key ? findAccount(accounts, accountMap, key) : null;
+}
+
 // No imported_id on purpose: the bank's QFX later carries the real one, and
 // Actual only fuzzy-matches when one side has no id. The state file stops the
 // same email being imported twice.
