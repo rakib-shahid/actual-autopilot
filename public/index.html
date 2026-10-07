@@ -33,8 +33,9 @@
   .dot.on { background: var(--accent); animation: pulse 1s infinite alternate; }
   .dot.ok { background: var(--good); } .dot.fail { background: var(--bad); }
   @keyframes pulse { to { opacity: .35; } }
-  button { font: inherit; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 7px 14px; cursor: pointer; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+  button, a.button { font: inherit; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 7px 14px; cursor: pointer; text-decoration: none; display: inline-block; }
+  button.primary, a.button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+  input[type=date] { font: inherit; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
   button:disabled { opacity: .5; cursor: default; }
   select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); max-width: 100%; }
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 12px; }
@@ -95,6 +96,25 @@
     </div>
     <p class="small muted" style="margin:6px 0 0">Transactions from the last 30 days that autopilot created or added notes to. Edit the notes and save; #autopilot is kept at the end.</p>
     <div id="recent"><div class="empty">Loading from Actual…</div></div>
+  </section>
+
+  <section class="panel">
+    <h2>Export</h2>
+    <p class="small muted" style="margin:6px 0 0">Every transaction in a date range as CSV, plus totals by category and account balances.</p>
+    <div class="row" style="margin-top:10px;flex-wrap:wrap">
+      <select id="exPeriod" aria-label="Period">
+        <option value="mtd">Month to date</option>
+        <option value="last-month">Last month</option>
+        <option value="last-30">Last 30 days</option>
+        <option value="ytd">Year to date</option>
+        <option value="last-year">Last year</option>
+        <option value="custom">Custom range…</option>
+      </select>
+      <input type="date" id="exFrom" aria-label="From" hidden>
+      <input type="date" id="exTo" aria-label="To" hidden>
+      <a class="button primary" id="exCsv" href="#">Download CSV</a>
+      <a class="button" id="exSummary" href="#" target="_blank" rel="noopener">Summary (JSON)</a>
+    </div>
   </section>
 
   <section class="panel">
@@ -310,6 +330,21 @@ $('recent').addEventListener('click', async (e) => {
   }
 });
 $('refreshRecent').addEventListener('click', loadRecent);
+
+function exportQuery() {
+  const period = $('exPeriod').value;
+  const custom = period === 'custom';
+  $('exFrom').hidden = $('exTo').hidden = !custom;
+  if (!custom) return `period=${period}`;
+  return new URLSearchParams({ ...( $('exFrom').value && { from: $('exFrom').value }), ...($('exTo').value && { to: $('exTo').value }) }).toString();
+}
+function updateExportLinks() {
+  const q = exportQuery();
+  $('exCsv').href = `/api/export.csv?${q}`;
+  $('exSummary').href = `/api/summary?${q}`;
+}
+['exPeriod', 'exFrom', 'exTo'].forEach((id) => $(id).addEventListener('change', updateExportLinks));
+updateExportLinks();
 loadStatus();
 loadReviews();
 loadRecent();

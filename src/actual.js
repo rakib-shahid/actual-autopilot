@@ -96,6 +96,7 @@ export async function loadLookups() {
   const groupName = new Map(groups.map((g) => [g.id, g.name]));
   return {
     accounts: accounts.filter((a) => !a.closed),
+    allAccounts: accounts,
     categories: categories
       .filter((c) => !c.hidden)
       .map((c) => ({ id: c.id, name: c.name, group: groupName.get(c.group_id) ?? '', is_income: c.is_income })),
@@ -104,6 +105,8 @@ export async function loadLookups() {
     payeeNames: payees.filter((p) => p.name && !p.transfer_acct).map((p) => p.name),
     // Account id -> its transfer payee; a transaction with that payee is a transfer.
     transferPayee: new Map(payees.filter((p) => p.transfer_acct).map((p) => [p.transfer_acct, p.id])),
+    // Transfer payee id -> the account on the other side.
+    transferAccount: new Map(payees.filter((p) => p.transfer_acct).map((p) => [p.id, p.transfer_acct])),
   };
 }
 
@@ -120,6 +123,31 @@ export async function recentTransactions(accounts, startDate, endDate) {
       }
     }
   }
+  return out;
+}
+
+// Every transaction in every open account, transfers and off-budget accounts
+// included, for exports. Splits become one row per part, under the parent's
+// date and account.
+export async function allTransactions(accounts, startDate, endDate) {
+  const out = [];
+  for (const account of accounts) {
+    const txns = await api.getTransactions(account.id, startDate, endDate);
+    for (const t of txns) {
+      const rows = t.is_parent && t.subtransactions?.length ? t.subtransactions.map((s) => ({ ...s, date: t.date, cleared: t.cleared })) : [t];
+      for (const row of rows) {
+        // Opening balances aren't income; the balances in the summary cover them.
+        if (row.tombstone || row.starting_balance_flag) continue;
+        out.push({ ...row, accountName: account.name, offbudget: !!account.offbudget });
+      }
+    }
+  }
+  return out;
+}
+
+export async function accountBalances(accounts) {
+  const out = [];
+  for (const a of accounts) out.push({ account: a.name, balance: await api.getAccountBalance(a.id), offbudget: !!a.offbudget });
   return out;
 }
 

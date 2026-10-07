@@ -46,6 +46,17 @@ export function loadConfig() {
         .map((s) => s.trim())
         .filter((s) => s && s !== '*'),
       lookbackDays: num('LOOKBACK_DAYS', 3),
+      sentMailbox: process.env.GMAIL_SENT_MAILBOX || '[Gmail]/Sent Mail',
+    },
+    exports: {
+      // Emails you a CSV + summary of month-to-date transactions (last month's on
+      // the 1st). "off" turns it off.
+      schedule: process.env.EXPORT_EMAIL_SCHEDULE || '30 6 * * *',
+      // Answer "autopilot: export ..." emails you send yourself.
+      requests: bool('EMAIL_REQUESTS', true),
+      pollMinutes: num('REQUEST_POLL_MINUTES', 5),
+      // Gmail label for the app's own emails, which are kept out of the inbox.
+      label: process.env.EXPORT_LABEL || 'Autopilot',
     },
     // Maps the last 4 digits a bank email mentions to an Actual account name,
     // e.g. {"1234": "Checking", "5678": "Credit Card"}.

@@ -40,9 +40,25 @@ The container serves a small page on port 8080 (`WEB_PORT`; `0` turns it off):
 - **Status:** when the last run finished, whether it had errors, and when the next scheduled run is.
 - **Scan now:** starts a full run (bank files, emails, categorizing) right away.
 - **Needs review:** every transaction Gemini wasn't confident about, with its guess preselected, how sure it was, and why. Save a category (or approve all guesses at once), or skip one to leave it uncategorized; skipped ones get `#review-skipped` so Gemini doesn't try them again.
+- **Export:** download a CSV or summary for a period (see Exports below).
 - **Recent activity:** the last few hundred log lines.
 
 There is no login unless you set `WEB_PASSWORD` (any username). Don't expose the page outside your network without one.
+
+## Exports (for you, scripts, or an AI assistant)
+
+Every transaction in a date range as CSV (date, account, payee, transfer, category group, category, amount, notes, cleared, off budget, id), plus a summary: income, spending, net, spending by category, top payees, uncategorized and waiting-for-review counts, and every account's balance. Transfers between your accounts are listed but left out of income and spending.
+
+Periods: `mtd` (default), `last-month`, `ytd`, `last-year`, `last-30` (any number of days), a month like `2026-09`, or `from`/`to` dates.
+
+**From the web page or your network:** the Export panel, or
+`/api/export.csv?period=last-month`, `/api/export.json?from=2026-09-01&to=2026-09-30`, `/api/summary?period=ytd`.
+
+**By email, for anything that can read your Gmail but can't reach your network** (a phone, a cloud AI assistant with a Gmail connector):
+
+- Every morning (`EXPORT_EMAIL_SCHEDULE`, default 6:30) the app emails you month to date (on the 1st, all of last month). Subject `[autopilot] Export <from> to <to> (...)`; the summary and the CSV are in the body between `----- BEGIN CSV -----` and `----- END CSV -----`, and attached.
+- Send yourself an email with a subject like `autopilot: export last-month`, `autopilot: export 2026-09-01 2026-09-30`, `autopilot: summary ytd`, `autopilot: scan` or `autopilot: status`, and the app replies in the same thread within `REQUEST_POLL_MINUTES`. Only mail in your Sent folder counts, so nobody else can send it commands.
+- The app's emails and your requests get the `Autopilot` label and are archived, so they don't fill the inbox. Gmail search: `label:autopilot subject:"[autopilot] Export"`.
 
 ## Gemini free tier
 
@@ -92,6 +108,11 @@ The container runs as uid 1000, so the import, done, and backup folders on the h
 | `BACKUP_KEEP` | `30` | number of backups to keep |
 | `WEB_PORT` | `8080` | web page port; `0` = off |
 | `WEB_PASSWORD` | | require this password for the web page |
+| `EXPORT_EMAIL_SCHEDULE` | `30 6 * * *` | cron for the daily export email; `off` = none |
+| `EMAIL_REQUESTS` | `true` | answer `autopilot: ...` emails you send yourself |
+| `REQUEST_POLL_MINUTES` | `5` | how often to check for those |
+| `EXPORT_LABEL` | `Autopilot` | Gmail label for the app's own emails |
+| `GMAIL_SENT_MAILBOX` | `[Gmail]/Sent Mail` | where requests are read from (change if Gmail isn't in English) |
 | `DRY_RUN` | `true` | nothing is written to Actual and files stay in the drop folder; every email in `LOOKBACK_DAYS` is re-checked (cached Gemini answers are reused) and the run ends with a "Dry-run preview" listing each row it would create (`[new]`) or the existing row it matched and the notes it would write (`[exists]`) |
 | `SCHEDULE` | `0 */2 * * *` | cron |
 | `RUN_ONCE` | `false` | run one pass and exit |

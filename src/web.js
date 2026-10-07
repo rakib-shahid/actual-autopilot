@@ -2,6 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { toCsv } from './export.js';
 
 // A small built-in web page: run status, "Scan now", the review list and recent
 // log lines. No framework, one static HTML file plus a JSON API.
@@ -63,6 +64,20 @@ export function startWebServer({ port, password, publicDir, api, log }) {
       if (req.method === 'POST' && url.pathname === '/api/scan') {
         const started = api.scan();
         return send(res, started ? 202 : 409, { started, status: api.status() });
+      }
+      if (req.method === 'GET' && ['/api/export.csv', '/api/export.json', '/api/summary'].includes(url.pathname)) {
+        const params = Object.fromEntries(['period', 'from', 'to'].map((k) => [k, url.searchParams.get(k) || undefined]));
+        let data;
+        try {
+          data = await api.export(params);
+        } catch (err) {
+          if (err instanceof RangeError) return send(res, 400, { error: err.message });
+          throw err;
+        }
+        if (url.pathname === '/api/summary') return send(res, 200, data.summary);
+        if (url.pathname === '/api/export.json') return send(res, 200, { summary: data.summary, transactions: data.rows });
+        res.setHeader('content-disposition', `attachment; filename="transactions-${data.range.from}-to-${data.range.to}.csv"`);
+        return send(res, 200, toCsv(data.rows), 'text/csv; charset=utf-8');
       }
       if (req.method === 'GET' && url.pathname === '/api/review') return send(res, 200, await api.review());
       if (req.method === 'GET' && url.pathname === '/api/recent') return send(res, 200, await api.recent());

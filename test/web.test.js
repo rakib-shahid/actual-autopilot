@@ -34,6 +34,11 @@ async function withServer(opts, fn) {
     scan: () => (calls.push('scan'), true),
     review: async () => ({ items: [], categories: [] }),
     decide: async (d) => (calls.push(d), { applied: d.length }),
+    export: async (params) => {
+      if (params.period === 'bad') throw new RangeError('unknown period');
+      calls.push(params);
+      return { range: { from: '2026-10-01', to: '2026-10-07' }, rows: [{ date: '2026-10-02', amount: '-1.00', id: 't1' }], summary: { spending: '1.00' } };
+    },
   };
   const server = startWebServer({ port: 0, publicDir: fileURLToPath(new URL('../public', import.meta.url)), api, log: () => {}, ...opts });
   await new Promise((r) => server.once('listening', r));
@@ -74,4 +79,18 @@ test('review notes can be edited before saving', async () => {
   assert.equal(editableNotes(notes), 'Wingstop');
   assert.equal(resolvedNotes('wings for game night'), 'wings for game night #autopilot');
   assert.ok(!isPendingReview(resolvedNotes('x', { skipped: true })));
+});
+
+test('exports: CSV download, JSON and summary', async () => {
+  await withServer({}, async (base, calls) => {
+    const csv = await fetch(base + '/api/export.csv?period=mtd');
+    assert.equal(csv.status, 200);
+    assert.match(csv.headers.get('content-type'), /text\/csv/);
+    assert.match(csv.headers.get('content-disposition'), /transactions-2026-10-01-to-2026-10-07\.csv/);
+    assert.match(await csv.text(), /^date,account,payee/);
+    assert.deepEqual(await (await fetch(base + '/api/summary?from=2026-10-01&to=2026-10-07')).json(), { spending: '1.00' });
+    assert.equal((await (await fetch(base + '/api/export.json')).json()).transactions.length, 1);
+    assert.equal((await fetch(base + '/api/export.csv?period=bad')).status, 400);
+    assert.deepEqual(calls[1], { period: undefined, from: '2026-10-01', to: '2026-10-07' });
+  });
 });

@@ -29,7 +29,11 @@ import {
   isoDate,
   toCents,
   formatAmount,
+  allTransactions,
+  accountBalances,
 } from './actual.js';
+import { resolveRange, buildRows, toCsv, summarize, summaryText, REQUEST_HELP } from './export.js';
+import { fetchRequests, sendToSelf, fileAway } from './mail.js';
 
 captureLogs();
 const log =(...args) => console.log(new Date().toISOString(), ...args);
@@ -553,6 +557,99 @@ async function applyDecisions(config, decisions) {
   });
 }
 
+// --- Exports ----------------------------------------------------------------
+
+const today = (config) => new Date().toLocaleDateString('en-CA', { timeZone: config.timezone });
+
+// Every transaction in the range plus a summary. Read-only, so it works in dry run too.
+async function exportData(config, params) {
+  const range = resolveRange(params, today(config));
+  return withOpenBudget(config, async () => {
+    const lookups = await loadLookups();
+    const txns = await allTransactions(lookups.accounts, range.from, range.to);
+    const rows = buildRows(txns, lookups);
+    const recent = await recentTransactions(lookups.accounts, daysAgo(config.categorize.historyDays), isoDate(new Date()));
+    const summary = summarize(rows, {
+      range,
+      balances: await accountBalances(lookups.accounts),
+      pendingReview: recent.filter((t) => isPendingReview(t.notes)).length,
+    });
+    return { range, rows, summary };
+  });
+}
+
+// Long enough for a few months of transactions; past that the attachment has them all.
+const INLINE_ROWS = 1500;
+
+async function emailExport(config, params, { inReplyTo, csv = true } = {}) {
+  const { range, rows, summary } = await exportData(config, params);
+  const name = `transactions-${range.from}-to-${range.to}`;
+  const inline = rows.length <= INLINE_ROWS;
+  const text = [
+    `Actual Autopilot ${csv ? 'export' : 'summary'}: ${range.from} to ${range.to} (${range.label})`,
+    '',
+    summaryText(summary),
+    ...(csv
+      ? ['', inline ? '----- BEGIN CSV -----' : `(${rows.length} rows: too many to include here, see ${name}.csv)`, ...(inline ? [toCsv(rows).trimEnd(), '----- END CSV -----'] : [])]
+      : []),
+    '',
+    REQUEST_HELP,
+  ].join('\n');
+  await sendToSelf(
+    { ...config.gmail, label: config.exports.label },
+    {
+      subject: `[autopilot] ${csv ? 'Export' : 'Summary'} ${range.from} to ${range.to} (${range.label})`,
+      text,
+      inReplyTo,
+      attachments: [
+        ...(csv ? [{ filename: `${name}.csv`, content: toCsv(rows), contentType: 'text/csv' }] : []),
+        { filename: `summary-${range.from}-to-${range.to}.json`, content: JSON.stringify(summary, null, 2), contentType: 'application/json' },
+      ],
+    },
+  );
+  log(`Emailed ${csv ? 'export' : 'summary'} ${range.from} to ${range.to}: ${rows.length} row(s)`);
+}
+
+function statusText(task) {
+  const r = lastRun;
+  return [
+    `Running now: ${running ? 'yes' : 'no'}`,
+    `Last run: ${r ? `${r.startedAt} (${r.trigger}), ${r.ok ? 'ok' : 'had errors'}` : 'none since the container started'}`,
+    `Next run: ${task?.getNextRun()?.toISOString() ?? 'unknown'}`,
+    `Dry run: ${config.dryRun ? 'yes' : 'no'}`,
+    '',
+    'Recent log:',
+    ...recentLogs().slice(-40),
+  ].join('\n');
+}
+
+// Answers "autopilot: ..." emails you sent yourself.
+async function answerRequests(config, task) {
+  const state = loadState(config.actual.dataDir);
+  const requests = (await fetchRequests(config.gmail)).filter((r) => r.messageId && !state.requests[r.messageId]);
+  for (const r of requests) {
+    log(`Email request "${r.subject}"`);
+    const reply = (subject, text) => sendToSelf({ ...config.gmail, label: config.exports.label }, { subject: `[autopilot] ${subject}`, text, inReplyTo: r.messageId });
+    try {
+      if (r.command === 'export' || r.command === 'summary') await emailExport(config, r.params, { inReplyTo: r.messageId, csv: r.command === 'export' });
+      else if (r.command === 'scan') {
+        const started = !running;
+        if (started) runOnce(config, { trigger: 'email' });
+        await reply('Scan', started ? 'Scan started. Send "autopilot: status" in a few minutes for the result.' : 'A run is already going.');
+      } else if (r.command === 'status') await reply('Status', statusText(task));
+      else await reply('Help', `${r.unknown ? `Unknown command "${r.unknown}".\n\n` : ''}${REQUEST_HELP}`);
+    } catch (err) {
+      log(`Email request "${r.subject}" failed:`, err?.message ?? err);
+      await reply('Request failed', `"${r.subject}" failed: ${err?.message ?? err}\n\n${REQUEST_HELP}`).catch(() => {});
+    }
+    await fileAway(config.gmail, r.messageId, config.exports.label).catch(() => {});
+    // Re-read before saving so a run that finished meanwhile isn't overwritten.
+    const fresh = loadState(config.actual.dataDir);
+    fresh.requests[r.messageId] = new Date().toISOString();
+    fresh.save();
+  }
+}
+
 function checkFolder(label, dir) {
   if (!fs.existsSync(dir)) {
     log(`${label}: ${dir} is not mounted, skipping`);
@@ -596,6 +693,7 @@ if (config.runOnce) {
           dryRun: config.dryRun,
           logs: recentLogs(),
         }),
+        export: (params) => exportData(config, params),
         scan: () => {
           if (running) return false;
           runOnce(config, { trigger: 'web' });
@@ -610,6 +708,37 @@ if (config.runOnce) {
   }
 
   await runOnce(config, { trigger: 'startup' });
+
+  const mailReady = config.gmail.enabled && config.gmail.user && config.gmail.appPassword;
+  if (mailReady && config.exports.schedule !== 'off') {
+    if (!cron.validate(config.exports.schedule)) throw new Error(`Invalid EXPORT_EMAIL_SCHEDULE "${config.exports.schedule}"`);
+    log(`Emailing exports on "${config.exports.schedule}"`);
+    cron.schedule(
+      config.exports.schedule,
+      () => {
+        // Month to date, except on the 1st, when last month is the useful one.
+        const period = today(config).endsWith('-01') ? 'last-month' : 'mtd';
+        emailExport(config, { period }).catch((err) => log('Export email failed:', err?.message ?? err));
+      },
+      { timezone: config.timezone },
+    );
+  }
+  if (mailReady && config.exports.requests && config.exports.pollMinutes > 0) {
+    let checking = false;
+    const check = async () => {
+      if (checking) return;
+      checking = true;
+      try {
+        await answerRequests(config, task);
+      } catch (err) {
+        log('Email request check failed:', err?.message ?? err);
+      } finally {
+        checking = false;
+      }
+    };
+    setInterval(check, config.exports.pollMinutes * 60 * 1000);
+    check();
+  }
 
   // Between scheduled runs, pick up new files within a few minutes. Not in dry
   // run, where files stay put and would be re-read every few minutes.

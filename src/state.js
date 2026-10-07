@@ -19,16 +19,21 @@ export function loadState(dataDir) {
     reviews: state.reviews ?? {},
     receipts: state.receipts ?? {},
     lastBackup: state.lastBackup ?? null,
+    // Answered "autopilot: ..." request emails, by Message-ID.
+    requests: state.requests ?? {},
     save() {
       // Keep the file small: forget emails older than 60 days, review notes older than 180.
       const now = Date.now();
       for (const [id, entry] of Object.entries(this.emails)) {
         if (now - new Date(entry.seenAt).getTime() > 60 * DAY_MS) delete this.emails[id];
       }
+      for (const [id, at] of Object.entries(this.requests)) {
+        if (now - new Date(at).getTime() > 7 * DAY_MS) delete this.requests[id];
+      }
       for (const [id, entry] of Object.entries(this.reviews)) {
         if (now - new Date(entry.at).getTime() > 180 * DAY_MS) delete this.reviews[id];
       }
-      fs.writeFileSync(file, JSON.stringify({ emails: this.emails, reviews: this.reviews, receipts: this.receipts, lastBackup: this.lastBackup }, null, 2));
+      fs.writeFileSync(file, JSON.stringify({ emails: this.emails, reviews: this.reviews, receipts: this.receipts, lastBackup: this.lastBackup, requests: this.requests }, null, 2));
     },
   };
 }
