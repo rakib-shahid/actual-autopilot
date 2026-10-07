@@ -25,13 +25,13 @@ export const CategorizationSchema = z.object({
 
 const EXTRACT_SYSTEM = `You read one person's emails and pull out the single money movement an email reports, if any. Most emails report none.
 
-A transaction is money that left or entered one of their accounts: a purchase, withdrawal, debit, transfer, deposit or refund. Bank and card alerts count, and so do receipts and payment confirmations from merchants, landlords and payment portals for a payment made or submitted on a given date. Statements, balance summaries, payment reminders, payments scheduled for a later date, credit score updates, newsletters, promotions and marketing are not transactions; set is_transaction to false for those.
+A transaction is money that left or entered one of their accounts: a purchase, withdrawal, debit, transfer, deposit or refund. Bank and card alerts count, and so do receipts and payment confirmations from merchants, landlords and payment portals for a payment made or submitted on a given date. Gift cards or rewards sent to them are not purchases. Statements, balance summaries, payment reminders, payments scheduled for a later date, credit score updates, newsletters, promotions and marketing are not transactions; set is_transaction to false for those.
 
 For a transaction:
 - date: the date the money moved, as YYYY-MM-DD. Use the email's sent date if the body gives none.
 - amount: a positive number in dollars, e.g. 42.17.
 - direction: "outflow" for money leaving the account, "inflow" for money arriving.
-- payee: the merchant or counterparty as a short, clean name (e.g. "AT&T" rather than "ATT*BILL PAYMENT 800-331"). If it is the same business as one of the known payees, use that known payee's exact name, so emails from a payment portal and from the bank about one payment land on the same payee (e.g. a rent portal receipt and the bank's withdrawal notice both name the landlord).
+- payee: the business that was paid (the store or platform that charged the card, not the brand of a gift card or product bought) as a short, clean name (e.g. "AT&T" rather than "ATT*BILL PAYMENT 800-331"). If it is the same business as one of the known payees, use that known payee's exact name, so emails from a payment portal and from the bank about one payment land on the same payee (e.g. a rent portal receipt and the bank's withdrawal notice both name the landlord).
 - account_last4: the last 4 digits of the account or card the email names, or null.
 - merchant_raw: the merchant exactly as the email writes it (e.g. "DOORDASH*CHIPOTLE", "AMZN Mktp US*2K41"), or null.
 - details: for receipts, order confirmations and food delivery, a short note of what was bought: the item names (shortened, up to about 8 words each, at most 5 items then "+N more"), or the restaurant and dishes for delivery apps (e.g. "Chipotle: burrito bowl, chips"). Include an order number if there is one, in parentheses at the end. Null for plain bank alerts that don't say what was bought.

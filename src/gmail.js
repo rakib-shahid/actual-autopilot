@@ -17,7 +17,8 @@ export function cleanEmailText(text) {
 
 // Only emails that mention a dollar amount can report a transaction, so the
 // rest never cost a Gemini request.
-export const mentionsMoney = (email) => /\$\s?\d/.test(`${email.subject}\n${email.text}`);
+// Amazon writes "24.98 USD" with no dollar sign.
+export const mentionsMoney = (email) => /\$\s?\d|\d\.\d{2}\s?USD\b|\bUSD\s?\d/i.test(`${email.subject}\n${email.text}`);
 
 // Read-only: opens the mailbox without marking anything as read. With no
 // senders it reads all mail except what you sent yourself.

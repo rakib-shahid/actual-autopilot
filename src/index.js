@@ -88,7 +88,9 @@ async function ingestEmails(config, lookups, state) {
     }
 
     const account = findAccount(lookups.accounts, config.accountMap, extraction.account_last4);
-    if (!account && !extraction.account_last4) {
+    // Receipts also land here when the card they show isn't one of yours
+    // (DoorDash prints a placeholder "MasterCard 0000").
+    if (!account && (!extraction.account_last4 || extraction.details)) {
       // Receipts often don't name the card; the bank's own alert for the same
       // charge will. Keep what was bought until that charge shows up.
       const details = detailsNote(extraction);

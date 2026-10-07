@@ -34,3 +34,11 @@ test('a receipt finds its bank charge: exact amount first, then close, never ano
   // Too many days apart.
   assert.equal(matchReceipt({ ...receipt, date: '2026-09-20' }, txns), null);
 });
+
+test('a roughly matching charge must be within 3 days; an exact one within 7', () => {
+  const charge = { id: 'a', date: '2026-10-05', amount: -5495, payeeName: 'Amazon', notes: '' };
+  const r = { date: '2026-09-29', amount: -6000, payee: 'Amazon', details: 'gift card' };
+  assert.equal(matchReceipt(r, [charge]), null);
+  assert.equal(matchReceipt({ ...r, date: '2026-10-03' }, [charge]).id, 'a');
+  assert.equal(matchReceipt({ ...r, amount: -5495 }, [charge]).id, 'a');
+});

@@ -5,6 +5,8 @@ import { DAY_MS } from './dedupe.js';
 // until the bank's charge shows up, then write what was bought into its notes.
 
 const MATCH_DAYS = 7;
+// A charge that only roughly matches must also be close in time.
+const CLOSE_DAYS = 3;
 // Amazon charges per shipment and delivery tips change, so the charge can be
 // a bit off the receipt total. Exact amounts always win over close ones.
 const TOLERANCE = 0.2;
@@ -45,7 +47,7 @@ export function matchReceipt(receipt, txns, claimed = new Set()) {
     .filter((t) => !(t.notes ?? '').includes(receipt.details))
     .filter((t) => samePayee(t.payeeName, receipt.payee))
     .map((t) => ({ t, off: Math.abs(t.amount - receipt.amount), days: Math.abs(dayNumber(t.date) - day) }))
-    .filter((c) => c.days <= MATCH_DAYS && c.off <= Math.abs(receipt.amount) * TOLERANCE)
+    .filter((c) => c.days <= (c.off === 0 ? MATCH_DAYS : CLOSE_DAYS) && c.off <= Math.abs(receipt.amount) * TOLERANCE)
     .sort((a, b) => a.off - b.off || a.days - b.days);
   return scored[0]?.t ?? null;
 }

@@ -66,3 +66,8 @@ test('only emails that mention a dollar amount go to Gemini', async () => {
   assert.ok(mentionsMoney({ subject: 'You spent $ 12.00', text: '' }));
   assert.ok(!mentionsMoney({ subject: 'Garage cleaning Monday', text: 'Please move your car.' }));
 });
+
+test('Amazon totals written as USD count as amounts', async () => {
+  const { mentionsMoney } = await import('../src/gmail.js');
+  assert.ok(mentionsMoney({ subject: 'Ordered 1 item: Supplements', text: 'Grand Total:\n24.98 USD' }));
+});
