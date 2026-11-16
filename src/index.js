@@ -32,7 +32,7 @@ import {
   allTransactions,
   accountBalances,
 } from './actual.js';
-import { resolveRange, buildRows, toCsv, summarize, summaryText, REQUEST_HELP } from './export.js';
+import { resolveRange, buildRows, toCsv, summarize, summaryText, loadBudget, REQUEST_HELP } from './export.js';
 import { fetchRequests, sendToSelf, fileAway } from './mail.js';
 
 captureLogs();
@@ -548,6 +548,8 @@ async function exportData(config, params) {
       range,
       balances: await accountBalances(lookups.accounts),
       pendingReview: recent.filter((t) => isPendingReview(t.notes)).length,
+      // The month the period ends in, even when the range spans two months.
+      budget: await loadBudget((month) => api.getBudgetMonth(month), range.to, log),
     });
     return { range, rows, summary };
   });

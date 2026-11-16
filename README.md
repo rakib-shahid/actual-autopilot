@@ -46,7 +46,46 @@ There is no login unless you set `WEB_PASSWORD` (any username). Don't expose the
 
 ## Exports (for you, scripts, or an AI assistant)
 
-Every transaction in a date range as CSV (date, account, payee, transfer, category group, category, amount, notes, cleared, off budget, id), plus a summary: income, spending, saved (categories in a group named like "Savings" or "Investments"), net, spending by category, top payees, uncategorized and waiting-for-review counts, and every account's balance. Transfers between budget accounts are listed but left out of income and spending; a transfer to an off-budget account counts under its category.
+Every transaction in a date range as CSV (date, account, payee, transfer, category group, category, amount, notes, cleared, off budget, id), plus a summary: income, spending, saved (categories in a group named like "Savings" or "Investments"), net, spending by category, the month's budget per category, top payees, uncategorized and waiting-for-review counts, and every account's balance. Transfers between budget accounts are listed but left out of income and spending; a transfer to an off-budget account counts under its category.
+
+**Budget.** The summary also has Actual's budget for the month the period ends in (for `2026-10-20` to `2026-11-05` that's November), one line per category, most overspent first:
+
+```
+Budget (2026-11):
+  Wants / 🛒 Shopping: budgeted 300.00 | spent 479.97 | remaining -179.97
+  Needs / Groceries: budgeted 600.00 | spent 212.40 | remaining 387.60
+```
+
+`spent` is money out this month (positive), `remaining` is Actual's category balance, rollover included (negative means overspent). Hidden categories and groups and the income group are left out. If the budget can't be read, the export still goes out without it and the error is logged.
+
+The JSON summary (`/api/summary`, the `summary` in `/api/export.json`, and the `summary-<from>-to-<to>.json` attachment) looks like this; `budget` is missing when the budget couldn't be read, and `to_budget` is missing for tracking budgets, which don't have one:
+
+```json
+{
+  "from": "2026-11-01",
+  "to": "2026-11-16",
+  "period": "month to date",
+  "transactions": 59,
+  "income": "5054.12",
+  "spending": "7498.49",
+  "saved": "0.00",
+  "net": "-2444.37",
+  "by_category": [{ "name": "Wants / 🛒 Shopping", "amount": "479.97" }],
+  "top_payees": [{ "name": "Amazon", "amount": "312.18" }],
+  "uncategorized": 0,
+  "pending_review": 0,
+  "balances": [{ "account": "C1 Checking", "balance": "3347.15", "offbudget": false }],
+  "budget": {
+    "month": "2026-11",
+    "to_budget": "123.45",
+    "categories": [
+      { "group": "Wants", "name": "🛒 Shopping", "budgeted": "300.00", "spent": "479.97", "remaining": "-179.97", "rollover": false }
+    ]
+  }
+}
+```
+
+`<group> / <name>` in `budget.categories` matches the names in `by_category`.
 
 Periods: `mtd` (default), `last-month`, `ytd`, `last-year`, `last-30` (any number of days), a month like `2026-09`, or `from`/`to` dates.
 

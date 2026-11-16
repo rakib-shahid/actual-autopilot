@@ -84,7 +84,7 @@ const dollars = (c) => (c / 100).toFixed(2);
 // saved rather than spent. balances: [{ account, balance (cents), offbudget }].
 const SAVINGS_GROUP = /saving|invest/i;
 
-export function summarize(rows, { range, balances = [], pendingReview = 0 }) {
+export function summarize(rows, { range, balances = [], pendingReview = 0, budget = null }) {
   let income = 0;
   let spending = 0;
   let saved = 0;
@@ -109,7 +109,7 @@ export function summarize(rows, { range, balances = [], pendingReview = 0 }) {
     if (!r.category) uncategorized++;
   }
   const sorted = (m) => [...m].sort((a, b) => b[1] - a[1]).map(([name, c]) => ({ name, amount: dollars(c) }));
-  return {
+  const summary = {
     from: range.from,
     to: range.to,
     period: range.label,
@@ -125,6 +125,54 @@ export function summarize(rows, { range, balances = [], pendingReview = 0 }) {
     pending_review: pendingReview,
     balances: balances.map((b) => ({ account: b.account, balance: dollars(b.balance), offbudget: !!b.offbudget })),
   };
+  // Left out when the budget couldn't be read, so the rest still goes out.
+  if (budget) summary.budget = budget;
+  return summary;
+}
+
+// The budget for one month (the one holding the period's end date), from
+// Actual's api.getBudgetMonth('YYYY-MM'): amounts are integer cents, "spent" is
+// negative for money out, "balance" is what's left including rollover. Hidden
+// groups and categories and the income group are left out. Returns
+// { month, to_budget?, categories: [{ group, name, budgeted, spent, remaining, rollover }] },
+// most overspent first. to_budget is missing for tracking budgets, which have none.
+export function budgetSummary(month, data) {
+  if (!data || !Array.isArray(data.categoryGroups)) throw new Error('budget month has no category groups');
+  const amount = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  const categories = [];
+  for (const g of data.categoryGroups) {
+    if (g.hidden || g.is_income) continue;
+    for (const c of g.categories ?? []) {
+      if (c.hidden || c.is_income) continue;
+      categories.push({
+        group: g.name,
+        name: c.name,
+        budgeted: dollars(amount(c.budgeted)),
+        spent: dollars(-amount(c.spent)),
+        remaining: dollars(amount(c.balance)),
+        rollover: !!c.carryover,
+        _remaining: amount(c.balance),
+      });
+    }
+  }
+  categories.sort((a, b) => a._remaining - b._remaining || `${a.group} / ${a.name}`.localeCompare(`${b.group} / ${b.name}`));
+  return {
+    month,
+    ...(typeof data.toBudget === 'number' && Number.isFinite(data.toBudget) ? { to_budget: dollars(data.toBudget) } : {}),
+    categories: categories.map(({ _remaining, ...c }) => c),
+  };
+}
+
+// getBudgetMonth: api.getBudgetMonth, or a stand-in in tests. An export never
+// fails over the budget: on any error this logs it and returns null.
+export async function loadBudget(getBudgetMonth, to, log) {
+  const month = to.slice(0, 7);
+  try {
+    return budgetSummary(month, await getBudgetMonth(month));
+  } catch (err) {
+    log(`Budget for ${month} unavailable, exporting without it:`, err?.message ?? err);
+    return null;
+  }
 }
 
 export function summaryText(s) {
@@ -136,6 +184,13 @@ export function summaryText(s) {
     'Spending by category:',
     ...s.by_category.map((c) => `  ${c.name}: ${c.amount}`),
     '',
+    ...(s.budget
+      ? [
+          `Budget (${s.budget.month}):`,
+          ...s.budget.categories.map((c) => `  ${c.group} / ${c.name}: budgeted ${c.budgeted} | spent ${c.spent} | remaining ${c.remaining}`),
+          '',
+        ]
+      : []),
     'Top payees:',
     ...s.top_payees.map((p) => `  ${p.name}: ${p.amount}`),
     '',
