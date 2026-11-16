@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveRange, buildRows, toCsv, summarize, parseRequest } from '../src/export.js';
+import { resolveRange, buildRows, toCsv, summarize, summaryText, parseRequest, budgetSummary, loadBudget } from '../src/export.js';
 
 test('date ranges: periods, months and custom ranges', () => {
   const today = '2026-10-07';
@@ -86,4 +86,119 @@ test('money moved to savings counts as saved, not spent', () => {
   assert.equal(s.saved, '2000.00');
   assert.equal(s.net, '990.00');
   assert.deepEqual(s.top_payees, [{ name: 'DoorDash', amount: '10.00' }]);
+});
+
+// Shaped like api.getBudgetMonth() in @actual-app/api 26.9: integer cents,
+// spent negative for money out, balance includes rollover.
+const budgetMonth = (month) => ({
+  month,
+  toBudget: 12345,
+  totalBudgeted: -90000,
+  categoryGroups: [
+    {
+      id: 'g-wants', name: 'Wants', is_income: false, hidden: false,
+      categories: [
+        { id: 'shop', name: '🛒 Shopping', group_id: 'g-wants', is_income: false, hidden: false, budgeted: 30000, spent: -47997, balance: -17997, carryover: false },
+        { id: 'food', name: 'Eating Out', group_id: 'g-wants', is_income: false, hidden: false, budgeted: 0, spent: -1545, balance: -1545, carryover: false },
+        { id: 'old', name: 'Old Hobby', group_id: 'g-wants', is_income: false, hidden: true, budgeted: 1000, spent: -500, balance: 500, carryover: false },
+      ],
+    },
+    {
+      id: 'g-needs', name: 'Needs', is_income: false, hidden: false,
+      categories: [
+        // A refund bigger than the spending: spent comes out negative.
+        { id: 'gro', name: 'Groceries', group_id: 'g-needs', is_income: false, hidden: false, budgeted: 60000, spent: 1250, balance: 61250, carryover: true },
+        { id: 'rent', name: 'Rent', group_id: 'g-needs', is_income: false, hidden: false, budgeted: 150005, spent: -150000, balance: 5, carryover: false },
+      ],
+    },
+    {
+      id: 'g-gone', name: 'Archived', is_income: false, hidden: true,
+      categories: [{ id: 'x', name: 'Visible In Hidden Group', group_id: 'g-gone', is_income: false, hidden: false, budgeted: 100, spent: -100, balance: 0, carryover: false }],
+    },
+    {
+      id: 'g-inc', name: 'Income', is_income: true, hidden: false,
+      categories: [{ id: 'pay', name: 'Paycheck', group_id: 'g-inc', is_income: true, hidden: false, budgeted: 0, received: 250000, balance: 0, carryover: false }],
+    },
+  ],
+});
+
+test('budget: shape, cents to dollars, signs, and most overspent first', () => {
+  const b = budgetSummary('2026-11', budgetMonth('2026-11'));
+  assert.deepEqual(b, {
+    month: '2026-11',
+    to_budget: '123.45',
+    categories: [
+      { group: 'Wants', name: '🛒 Shopping', budgeted: '300.00', spent: '479.97', remaining: '-179.97', rollover: false },
+      { group: 'Wants', name: 'Eating Out', budgeted: '0.00', spent: '15.45', remaining: '-15.45', rollover: false },
+      { group: 'Needs', name: 'Rent', budgeted: '1500.05', spent: '1500.00', remaining: '0.05', rollover: false },
+      { group: 'Needs', name: 'Groceries', budgeted: '600.00', spent: '-12.50', remaining: '612.50', rollover: true },
+    ],
+  });
+});
+
+test('budget: hidden categories, hidden groups and income are left out', () => {
+  const names = budgetSummary('2026-11', budgetMonth('2026-11')).categories.map((c) => `${c.group} / ${c.name}`);
+  assert.ok(!names.includes('Wants / Old Hobby'));
+  assert.ok(!names.some((n) => n.startsWith('Archived /')));
+  assert.ok(!names.some((n) => n.startsWith('Income /')));
+});
+
+test('budget: no to_budget when Actual has none (tracking budgets)', () => {
+  const b = budgetSummary('2026-11', { ...budgetMonth('2026-11'), toBudget: null });
+  assert.ok(!('to_budget' in b));
+  assert.equal(budgetSummary('2026-11', { ...budgetMonth('2026-11'), toBudget: 0 }).to_budget, '0.00');
+});
+
+test('budget: names line up with by_category', () => {
+  const lk = { ...lookups, categories: [...lookups.categories, { id: 'shop', name: '🛒 Shopping', group: 'Wants' }] };
+  const rows = buildRows([{ id: 'a', date: '2026-11-02', accountName: 'Credit Card', payee: 'p1', category: 'shop', amount: -47997 }], lk);
+  const s = summarize(rows, { range: { from: '2026-11-01', to: '2026-11-16', label: 'month to date' }, budget: budgetSummary('2026-11', budgetMonth('2026-11')) });
+  const budgetNames = s.budget.categories.map((c) => `${c.group} / ${c.name}`);
+  assert.ok(budgetNames.includes(s.by_category[0].name));
+});
+
+test('budget: month of the end date, even when the range spans two months', async () => {
+  const asked = [];
+  const get = async (month) => (asked.push(month), budgetMonth(month));
+  const range = resolveRange({ from: '2026-10-20', to: '2026-11-05' }, '2026-11-16');
+  const b = await loadBudget(get, range.to, () => {});
+  assert.deepEqual(asked, ['2026-11']);
+  assert.equal(b.month, '2026-11');
+  assert.equal((await loadBudget(get, resolveRange({ period: 'last-month' }, '2026-01-01').to, () => {})).month, '2025-12');
+});
+
+test('budget: a failure is logged and the export goes out without it', async () => {
+  const logged = [];
+  const log = (...args) => logged.push(args.join(' '));
+  const range = { from: '2026-11-01', to: '2026-11-16', label: 'month to date' };
+  const failing = async () => {
+    throw new Error('No budget exists for month: 2026-11');
+  };
+  const budget = await loadBudget(failing, range.to, log);
+  assert.equal(budget, null);
+  assert.match(logged[0], /2026-11.*No budget exists/);
+  // Malformed data is treated the same way.
+  assert.equal(await loadBudget(async () => ({}), range.to, () => {}), null);
+
+  const s = summarize(buildRows(txns, lookups), { range, balances: [], budget });
+  assert.ok(!('budget' in s));
+  assert.deepEqual(Object.keys(s), ['from', 'to', 'period', 'transactions', 'income', 'spending', 'saved', 'net', 'by_category', 'top_payees', 'uncategorized', 'pending_review', 'balances']);
+  assert.ok(!summaryText(s).includes('Budget ('));
+});
+
+test('budget: JSON keeps the existing keys and adds budget last; text section sits between categories and payees', () => {
+  const range = { from: '2026-11-01', to: '2026-11-16', label: 'month to date' };
+  const s = summarize(buildRows(txns, lookups), { range, balances: [{ account: 'Checking', balance: 100 }], budget: budgetSummary('2026-11', budgetMonth('2026-11')) });
+  assert.deepEqual(Object.keys(s), ['from', 'to', 'period', 'transactions', 'income', 'spending', 'saved', 'net', 'by_category', 'top_payees', 'uncategorized', 'pending_review', 'balances', 'budget']);
+  const parsed = JSON.parse(JSON.stringify(s));
+  assert.deepEqual(Object.keys(parsed.budget), ['month', 'to_budget', 'categories']);
+  assert.deepEqual(Object.keys(parsed.budget.categories[0]), ['group', 'name', 'budgeted', 'spent', 'remaining', 'rollover']);
+
+  const lines = summaryText(s).split('\n');
+  const at = (prefix) => lines.findIndex((l) => l.startsWith(prefix));
+  assert.ok(at('Spending by category:') < at('Budget (2026-11):'));
+  assert.ok(at('Budget (2026-11):') < at('Top payees:'));
+  assert.equal(lines[at('Budget (2026-11):') + 1], '  Wants / 🛒 Shopping: budgeted 300.00 | spent 479.97 | remaining -179.97');
+  assert.equal(lines[at('Budget (2026-11):') + 4], '  Needs / Groceries: budgeted 600.00 | spent -12.50 | remaining 612.50');
+  assert.equal(lines[at('Top payees:') - 1], '');
 });
